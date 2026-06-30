@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Shield, Box, Square, Loader2, MapPinOff, AlertTriangle } from "lucide-react";
+import {
+  Shield,
+  Box,
+  Square,
+  Loader2,
+  MapPinOff,
+  AlertTriangle,
+  Menu,
+  X,
+} from "lucide-react";
 import NodeSelector from "@/components/NodeSelector";
 import TimeRangePicker from "@/components/TimeRangePicker";
 import TrackPlayback from "@/components/TrackPlayback";
@@ -41,6 +50,7 @@ export default function Page() {
   const [selectedPoint, setSelectedPoint] = useState<EnrichedPoint | null>(null);
   const [is3D, setIs3D] = useState(false);
   const [flyToken, setFlyToken] = useState(0);
+  const [panelOpen, setPanelOpen] = useState(false); // panel de controles en móvil
 
   const range = useMemo<TimeRange>(
     () => (rangeKey === "custom" && custom ? custom : resolveRange(rangeKey)),
@@ -133,18 +143,29 @@ export default function Page() {
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-base-900/70 via-transparent to-transparent" />
 
       {/* ===== Header ===== */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4">
-        <div className="pointer-events-auto flex items-center gap-2.5 glass rounded-xl px-3 py-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-live/15 text-live shadow-glow">
-            <Shield size={17} />
-          </span>
-          <div className="leading-tight">
-            <h1 className="text-sm font-bold tracking-tight text-slate-100">
-              MAP&nbsp;SECURITY
-            </h1>
-            <p className="text-[10px] uppercase tracking-widest text-slate-400">
-              Rastreo Mesh · Guaicaramo
-            </p>
+      <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 md:p-4">
+        <div className="pointer-events-auto flex items-center gap-2">
+          {/* toggle del panel (solo móvil) */}
+          <button
+            onClick={() => setPanelOpen((o) => !o)}
+            className="glass grid h-11 w-11 place-items-center rounded-xl text-slate-200 md:hidden"
+            aria-label={panelOpen ? "Cerrar controles" : "Abrir controles"}
+          >
+            {panelOpen ? <X size={19} /> : <Menu size={19} />}
+          </button>
+
+          <div className="flex items-center gap-2.5 glass rounded-xl px-3 py-2">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-live/15 text-live shadow-glow">
+              <Shield size={17} />
+            </span>
+            <div className="leading-tight">
+              <h1 className="text-sm font-bold tracking-tight text-slate-100">
+                MAP&nbsp;SECURITY
+              </h1>
+              <p className="hidden text-[10px] uppercase tracking-widest text-slate-400 sm:block">
+                Rastreo Mesh · Guaicaramo
+              </p>
+            </div>
           </div>
         </div>
 
@@ -168,9 +189,20 @@ export default function Page() {
       </header>
 
       {/* ===== Panel izquierdo (controles) ===== */}
-      <div className="pointer-events-none absolute left-4 top-20 bottom-4 flex w-72 flex-col gap-3">
+      <div
+        className={`${
+          panelOpen ? "flex" : "hidden"
+        } md:flex pointer-events-none absolute inset-x-3 top-[4.75rem] bottom-[7.5rem] flex-col gap-3 overflow-y-auto md:inset-x-auto md:left-4 md:top-20 md:bottom-4 md:w-72 md:overflow-visible`}
+      >
         <div className="pointer-events-auto">
-          <NodeSelector nodes={nodes} selected={selected} onSelect={setSelected} />
+          <NodeSelector
+            nodes={nodes}
+            selected={selected}
+            onSelect={(id) => {
+              setSelected(id);
+              setPanelOpen(false); // en móvil, vuelve al mapa tras elegir
+            }}
+          />
         </div>
         <div className="pointer-events-auto">
           <TimeRangePicker
@@ -184,11 +216,11 @@ export default function Page() {
         <div className="pointer-events-auto">
           <StatsHUD stats={stats} latest={latest} />
         </div>
-        <div className="flex-1" />
+        <div className="hidden flex-1 md:block" />
       </div>
 
       {/* ===== Panel derecho (detalle de punto) ===== */}
-      <div className="pointer-events-none absolute right-4 top-20 flex justify-end">
+      <div className="pointer-events-none absolute inset-x-3 top-[4.75rem] flex justify-end md:inset-x-auto md:right-4 md:top-20">
         <PointDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       </div>
 

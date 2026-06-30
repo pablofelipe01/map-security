@@ -60,7 +60,7 @@ export default function PointDetail({ point, onClose }: Props) {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 24 }}
           transition={{ type: "spring", stiffness: 320, damping: 30 }}
-          className="glass-strong pointer-events-auto w-80 rounded-2xl p-4"
+          className="glass-strong pointer-events-auto w-full max-w-sm rounded-2xl p-4 md:w-80"
         >
           <div className="mb-3 flex items-start justify-between">
             <div>
