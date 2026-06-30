@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  overflow: hidden; /* dashboard a pantalla completa */
+}
+
+/* ---- Glassmorphism reutilizable ---- */
+@layer components {
+  .glass {
+    @apply bg-base-800/60 backdrop-blur-md border border-white/10 shadow-glass;
+  }
+  .glass-strong {
+    @apply bg-base-850/80 backdrop-blur-xl border border-white/10 shadow-glass;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5
+      text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply btn text-slate-300 hover:bg-white/10;
+  }
+  .btn-active {
+    @apply btn bg-live-cyan/15 text-live-cyan ring-1 ring-live-cyan/40;
+  }
+  .stat-label {
+    @apply text-[10px] uppercase tracking-wider text-slate-400;
+  }
+  .stat-value {
+    @apply font-mono text-lg font-semibold text-slate-100;
+  }
+}
+
+/* ---- Scrollbar fino ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ---- Range slider (playback) ---- */
+input[type="range"].playback {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+input[type="range"].playback::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #22d3ee;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.8);
+  cursor: pointer;
+  border: 2px solid #05070a;
+}
+input[type="range"].playback::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #22d3ee;
+  border: 2px solid #05070a;
+  cursor: pointer;
+}
+
+/* Google Maps: oculta el ruido del fondo blanco al cargar tiles */
+.gm-style {
+  background: #05070a !important;
+}

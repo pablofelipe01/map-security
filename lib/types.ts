@@ -1,0 +1,72 @@
+// Tipos del backend Supabase (solo lectura).
+// Reflejan la vista `v_node_track` y la tabla `nodes`.
+
+/** Una fila de la tabla `nodes` (dimensión, 1 por nodo). */
+export interface NodeRow {
+  node_id: string; // ej. "!86591d35"
+  long_name: string | null;
+  short_name: string | null;
+  last_seen: string | null; // ISO UTC
+}
+
+/**
+ * Un punto del recorrido (`v_node_track`).
+ * Muchos campos son nullable: este nodo no manda telemetría completa,
+ * y `ground_track_deg` viene null en la data real (el rumbo se computa en el front).
+ */
+export interface TrackPoint {
+  id: number;
+  node_id: string;
+  sample_local: string; // ISO UTC (cuándo corrió el poller)
+  gps_time: string | null; // ISO UTC (timestamp del fix GPS)
+  lat: number;
+  lon: number;
+  alt_m: number | null; // ruidosa: solo informativa
+  ground_speed: number | null; // NO confiable
+  ground_track_deg: number | null; // rumbo 0-360 (suele venir null)
+  sats: number | null;
+  pdop: number | null;
+  rx_rssi: number | null;
+  snr: number | null;
+  rx_snr: number | null;
+  hops_away: number | null;
+  battery_level: number | null;
+  voltage: number | null;
+  nuevo_fix: boolean; // true = fix GPS real
+  dist_prev_fix_m: number | null; // metros desde el fix distinto anterior
+  min_since_prev_fix: number | null; // minutos desde el fix distinto anterior
+  is_stationary: boolean | null; // true = se quedó quieto (<35 m)
+}
+
+/** Punto enriquecido en el cliente (rumbo calculado, índice, etc.). */
+export interface EnrichedPoint extends TrackPoint {
+  index: number;
+  /** Rumbo en grados calculado del punto anterior a este (fallback de ground_track_deg). */
+  bearingDeg: number | null;
+  /** Epoch ms del sample_local, para playback y gradientes. */
+  t: number;
+}
+
+/** Una "racha quieta": grupo de puntos consecutivos is_stationary=true. */
+export interface StationaryStint {
+  startIndex: number;
+  endIndex: number;
+  lat: number;
+  lon: number;
+  totalMinutes: number;
+  startPoint: EnrichedPoint;
+  endPoint: EnrichedPoint;
+}
+
+/** Stats agregadas del recorrido para el HUD. */
+export interface TrackStats {
+  totalPoints: number;
+  totalDistanceM: number;
+  stops: number;
+  movingMinutes: number;
+  stationaryMinutes: number;
+  startTime: string | null; // ISO UTC
+  endTime: string | null; // ISO UTC
+  batteryLevel: number | null;
+  maxSpeed: number | null;
+}
