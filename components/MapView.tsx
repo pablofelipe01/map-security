@@ -6,7 +6,12 @@ import type { EnrichedPoint, StationaryStint } from "@/lib/types";
 import { DEFAULT_CENTER, fmtTime, fmtDuration, compass } from "@/lib/geo";
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
-const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || undefined;
+// Map ID: solo se usa si es un mapa VECTOR válido del mismo proyecto que la key.
+// Para el satélite/híbrido raster NO hace falta (y un Map ID inválido deja el
+// mapa base en negro). Por eso solo lo pasamos cuando además se pide modo vector.
+const RAW_MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || undefined;
+const USE_VECTOR_MAP_ID = process.env.NEXT_PUBLIC_USE_VECTOR_MAP === "true";
+const MAP_ID = USE_VECTOR_MAP_ID ? RAW_MAP_ID : undefined;
 
 // Umbral para considerar un tramo como "hueco sin reporte" (min).
 const GAP_MINUTES = 35;

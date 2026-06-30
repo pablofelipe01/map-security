@@ -1,0 +1,39 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#0c1018"/>
+      <stop offset="100%" stop-color="#05070a"/>
+    </radialGradient>
+    <linearGradient id="globe" x1="20%" y1="15%" x2="80%" y2="90%">
+      <stop offset="0%" stop-color="#39ff14"/>
+      <stop offset="55%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#0e7490"/>
+    </linearGradient>
+    <clipPath id="clip"><circle cx="32" cy="32" r="18"/></clipPath>
+  </defs>
+
+  <!-- fondo redondeado -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+
+  <!-- anillo orbital (vibra mesh / seguridad) -->
+  <ellipse cx="32" cy="32" rx="27" ry="11" transform="rotate(-28 32 32)"
+           fill="none" stroke="#22d3ee" stroke-opacity="0.45" stroke-width="1.6"/>
+
+  <!-- planeta -->
+  <circle cx="32" cy="32" r="18" fill="url(#globe)"/>
+
+  <!-- meridianos / paralelos -->
+  <g clip-path="url(#clip)" stroke="#05070a" stroke-opacity="0.55" stroke-width="1.4" fill="none">
+    <ellipse cx="32" cy="32" rx="7" ry="18"/>
+    <ellipse cx="32" cy="32" rx="14" ry="18"/>
+    <line x1="14" y1="32" x2="50" y2="32"/>
+    <path d="M16 23 H48"/>
+    <path d="M16 41 H48"/>
+  </g>
+
+  <!-- brillo -->
+  <circle cx="25" cy="24" r="4.5" fill="#ffffff" fill-opacity="0.28"/>
+
+  <!-- punto "vivo" -->
+  <circle cx="42" cy="40" r="3.2" fill="#39ff14" stroke="#05070a" stroke-width="1.2"/>
+</svg>
