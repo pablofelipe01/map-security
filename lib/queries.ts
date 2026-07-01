@@ -39,27 +39,57 @@ export async function fetchTrack(
   return (data ?? []) as unknown as TrackPoint[];
 }
 
+// Columnas disponibles en la tabla `node_latest` (1 fila por nodo).
+const LATEST_COLUMNS =
+  "node_id,sample_local,gps_time,lat,lon,alt_m,sats,ground_speed," +
+  "ground_track_deg,snr,battery_level,voltage,precision_bits,last_heard";
+
 /**
- * Última posición REAL de un nodo (marcador "en vivo"), sin importar el rango.
+ * Última posición del nodo (marcador "en vivo").
  *
- * IMPORTANTE: NO filtra `nuevo_fix` ni `is_stationary`. El marcador de posición
- * actual SIEMPRE debe mostrar el último punto conocido y su hora, aunque el nodo
- * esté parado/silencioso. En esta data el ~81% de las filas son `nuevo_fix=false`
- * (el poller corrió pero el nodo no reportó posición nueva → repiten la última
- * posición); filtrarlas dejaría el marcador anclado a un fix viejo y el
- * "hace X min" mentiría. El filtro `nuevo_fix` solo aplica al RASTRO (fetchTrack),
- * nunca al marcador en vivo. Seguimos leyendo la vista para conservar los campos
- * derivados (is_stationary, dist_prev_fix…) que usa el popup de detalle.
+ * Lee de la tabla `node_latest`, que el backend mantiene con la ÚLTIMA fila por
+ * nodo (actualizada cada minuto). Aquí NO se filtra `nuevo_fix` ni `is_stationary`:
+ * el marcador de posición actual SIEMPRE muestra el último punto conocido y su
+ * hora, aunque el nodo esté quieto/silencioso. El filtro `nuevo_fix` solo aplica
+ * al RASTRO histórico (ver `fetchTrack`), nunca al marcador en vivo.
+ *
+ * `node_latest` no trae los campos derivados de la vista (is_stationary,
+ * dist_prev_fix…); esos son propios del histórico y no del punto "ahora", así que
+ * se rellenan como null para encajar en TrackPoint.
  */
 export async function fetchLatest(nodeId: string): Promise<TrackPoint | null> {
   const { data, error } = await supabase
-    .from("v_node_track")
-    .select(TRACK_COLUMNS)
+    .from("node_latest")
+    .select(LATEST_COLUMNS)
     .eq("node_id", nodeId)
-    .not("lat", "is", null) // solo descarta filas sin posición (no aplica a esta data)
-    .order("sample_local", { ascending: false })
     .limit(1);
 
   if (error) throw error;
-  return ((data ?? [])[0] as unknown as TrackPoint) ?? null;
+  const row = (data ?? [])[0] as unknown as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  // Normaliza a TrackPoint (campos derivados del histórico → null).
+  return {
+    id: -1,
+    node_id: row.node_id as string,
+    sample_local: row.sample_local as string,
+    gps_time: (row.gps_time as string) ?? null,
+    lat: row.lat as number,
+    lon: row.lon as number,
+    alt_m: (row.alt_m as number) ?? null,
+    ground_speed: (row.ground_speed as number) ?? null,
+    ground_track_deg: (row.ground_track_deg as number) ?? null,
+    sats: (row.sats as number) ?? null,
+    pdop: null,
+    rx_rssi: null,
+    snr: (row.snr as number) ?? null,
+    rx_snr: null,
+    hops_away: null,
+    battery_level: (row.battery_level as number) ?? null,
+    voltage: (row.voltage as number) ?? null,
+    nuevo_fix: true,
+    dist_prev_fix_m: null,
+    min_since_prev_fix: null,
+    is_stationary: null,
+  };
 }
