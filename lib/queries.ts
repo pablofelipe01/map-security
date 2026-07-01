@@ -40,15 +40,23 @@ export async function fetchTrack(
 }
 
 /**
- * Última posición real de un nodo (marcador "en vivo").
- * Trae el fix nuevo más reciente sin importar el rango.
+ * Última posición REAL de un nodo (marcador "en vivo"), sin importar el rango.
+ *
+ * IMPORTANTE: NO filtra `nuevo_fix` ni `is_stationary`. El marcador de posición
+ * actual SIEMPRE debe mostrar el último punto conocido y su hora, aunque el nodo
+ * esté parado/silencioso. En esta data el ~81% de las filas son `nuevo_fix=false`
+ * (el poller corrió pero el nodo no reportó posición nueva → repiten la última
+ * posición); filtrarlas dejaría el marcador anclado a un fix viejo y el
+ * "hace X min" mentiría. El filtro `nuevo_fix` solo aplica al RASTRO (fetchTrack),
+ * nunca al marcador en vivo. Seguimos leyendo la vista para conservar los campos
+ * derivados (is_stationary, dist_prev_fix…) que usa el popup de detalle.
  */
 export async function fetchLatest(nodeId: string): Promise<TrackPoint | null> {
   const { data, error } = await supabase
     .from("v_node_track")
     .select(TRACK_COLUMNS)
     .eq("node_id", nodeId)
-    .eq("nuevo_fix", true)
+    .not("lat", "is", null) // solo descarta filas sin posición (no aplica a esta data)
     .order("sample_local", { ascending: false })
     .limit(1);
 
