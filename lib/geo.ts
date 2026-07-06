@@ -1,9 +1,4 @@
-import type {
-  EnrichedPoint,
-  StationaryStint,
-  TrackPoint,
-  TrackStats,
-} from "./types";
+import type { EnrichedPoint, Estadia, TrackPoint, TrackStats } from "./types";
 
 export const BOGOTA_TZ = "America/Bogota";
 
@@ -72,60 +67,31 @@ export function enrichTrack(points: TrackPoint[]): EnrichedPoint[] {
 }
 
 /**
- * Agrupa rachas consecutivas de `is_stationary=true` en "paradas".
- * El tiempo de permanencia suma `min_since_prev_fix` de la racha.
+ * Stats agregadas para el HUD.
+ *
+ * El rastro (`points`) ya viene sin puntos de estadía (solo movimiento real), así
+ * que la distancia y los minutos "en movimiento" salen de ahí. Las paradas y los
+ * minutos "quieto" vienen de las estadías que calculó el backend (`estadias`).
  */
-export function computeStationaryStints(
-  points: EnrichedPoint[]
-): StationaryStint[] {
-  const stints: StationaryStint[] = [];
-  let cur: EnrichedPoint[] | null = null;
+export function computeStats(
+  points: EnrichedPoint[],
+  estadias: Estadia[] = []
+): TrackStats {
+  const stationaryMin = estadias.reduce((acc, e) => acc + (e.minutos ?? 0), 0);
+  const stops = estadias.length;
 
-  const flush = () => {
-    if (!cur || cur.length === 0) return;
-    const startPoint = cur[0];
-    const endPoint = cur[cur.length - 1];
-    // sumamos los minutos de permanencia de la racha (incluye el primero
-    // que entró en quietud usando su min_since_prev_fix si existe).
-    const totalMinutes = cur.reduce(
-      (acc, p) => acc + (p.min_since_prev_fix ?? 0),
-      0
-    );
-    stints.push({
-      startIndex: startPoint.index,
-      endIndex: endPoint.index,
-      lat: endPoint.lat,
-      lon: endPoint.lon,
-      totalMinutes,
-      startPoint,
-      endPoint,
-    });
-    cur = null;
-  };
-
-  for (const p of points) {
-    if (p.is_stationary) {
-      if (!cur) cur = [];
-      cur.push(p);
-    } else {
-      flush();
-    }
-  }
-  flush();
-  return stints;
-}
-
-/** Stats agregadas del recorrido para el HUD. */
-export function computeStats(points: EnrichedPoint[]): TrackStats {
   if (points.length === 0) {
+    // Sin movimiento, pero puede haber estadías (el nodo solo estuvo quieto).
+    const first = estadias[0];
+    const last = estadias[estadias.length - 1];
     return {
       totalPoints: 0,
       totalDistanceM: 0,
-      stops: 0,
+      stops,
       movingMinutes: 0,
-      stationaryMinutes: 0,
-      startTime: null,
-      endTime: null,
+      stationaryMinutes: stationaryMin,
+      startTime: first?.desde ?? null,
+      endTime: last?.hasta ?? null,
       batteryLevel: null,
       maxSpeed: null,
     };
@@ -133,7 +99,6 @@ export function computeStats(points: EnrichedPoint[]): TrackStats {
 
   let dist = 0;
   let movingMin = 0;
-  let stationaryMin = 0;
   let maxSpeed: number | null = null;
 
   for (let i = 0; i < points.length; i++) {
@@ -143,22 +108,19 @@ export function computeStats(points: EnrichedPoint[]): TrackStats {
       // distancia: usa dist_prev_fix_m del backend si está, si no Haversine.
       dist += p.dist_prev_fix_m ?? haversineM(prev, p);
     }
-    const mins = p.min_since_prev_fix ?? 0;
-    if (p.is_stationary) stationaryMin += mins;
-    else movingMin += mins;
+    movingMin += p.min_since_prev_fix ?? 0;
 
     if (p.ground_speed != null) {
       maxSpeed = maxSpeed == null ? p.ground_speed : Math.max(maxSpeed, p.ground_speed);
     }
   }
 
-  const stints = computeStationaryStints(points);
   const battery = [...points].reverse().find((p) => p.battery_level != null);
 
   return {
     totalPoints: points.length,
     totalDistanceM: dist,
-    stops: stints.length,
+    stops,
     movingMinutes: movingMin,
     stationaryMinutes: stationaryMin,
     startTime: points[0].sample_local,

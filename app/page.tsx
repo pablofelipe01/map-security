@@ -17,11 +17,11 @@ import TimeRangePicker from "@/components/TimeRangePicker";
 import TrackPlayback from "@/components/TrackPlayback";
 import PointDetail from "@/components/PointDetail";
 import StatsHUD from "@/components/StatsHUD";
-import { fetchNodes, fetchTrack, fetchLatest } from "@/lib/queries";
-import { enrichTrack, computeStationaryStints, computeStats } from "@/lib/geo";
+import { fetchNodes, fetchTrack, fetchLatest, fetchEstadias } from "@/lib/queries";
+import { enrichTrack, computeStats } from "@/lib/geo";
 import { resolveRange, type RangeKey, type TimeRange } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
-import type { NodeRow, EnrichedPoint, TrackPoint } from "@/lib/types";
+import type { NodeRow, EnrichedPoint, TrackPoint, Estadia } from "@/lib/types";
 
 // El mapa solo en cliente (usa window/google).
 const MapView = dynamic(() => import("@/components/MapView"), {
@@ -42,6 +42,7 @@ export default function Page() {
   const [custom, setCustom] = useState<TimeRange | null>(null);
 
   const [rawPoints, setRawPoints] = useState<TrackPoint[]>([]);
+  const [estadias, setEstadias] = useState<Estadia[]>([]);
   const [latestRaw, setLatestRaw] = useState<TrackPoint | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,11 +75,13 @@ export default function Page() {
       if (!selected) return;
       if (!opts?.silent) setLoading(true);
       try {
-        const [track, latest] = await Promise.all([
+        const [track, estad, latest] = await Promise.all([
           fetchTrack(selected, range.fromISO, range.toISO),
+          fetchEstadias(selected, range.fromISO, range.toISO),
           fetchLatest(selected),
         ]);
         setRawPoints(track);
+        setEstadias(estad);
         setLatestRaw(latest);
         setError(null);
         if (opts?.fly) setFlyToken((t) => t + 1);
@@ -109,8 +112,10 @@ export default function Page() {
 
   // --- Derivados ---
   const points = useMemo(() => enrichTrack(rawPoints), [rawPoints]);
-  const stints = useMemo(() => computeStationaryStints(points), [points]);
-  const stats = useMemo(() => computeStats(points), [points]);
+  const stats = useMemo(
+    () => computeStats(points, estadias),
+    [points, estadias]
+  );
   const latest = useMemo<EnrichedPoint | null>(() => {
     if (!latestRaw) return null;
     return enrichTrack([latestRaw])[0] ?? null;
@@ -121,7 +126,7 @@ export default function Page() {
     if (c) setCustom(c);
   };
 
-  const hasData = points.length > 0;
+  const hasData = points.length > 0 || estadias.length > 0;
 
   return (
     <main className="relative h-screen w-screen overflow-hidden">
@@ -129,7 +134,7 @@ export default function Page() {
       <div className="absolute inset-0">
         <MapView
           points={points}
-          stints={stints}
+          estadias={estadias}
           latest={latest}
           playbackIndex={playbackIndex}
           is3D={is3D}
@@ -225,7 +230,7 @@ export default function Page() {
       </div>
 
       {/* ===== Playback (abajo centro) ===== */}
-      {hasData && (
+      {points.length > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4">
           <div className="pointer-events-auto w-full max-w-2xl">
             <TrackPlayback

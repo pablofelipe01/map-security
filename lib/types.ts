@@ -36,6 +36,24 @@ export interface TrackPoint {
   dist_prev_fix_m: number | null; // metros desde el fix distinto anterior
   min_since_prev_fix: number | null; // minutos desde el fix distinto anterior
   is_stationary: boolean | null; // true = se quedó quieto (<35 m)
+  es_outlier: boolean | null; // true = fix descartado por salto/ruido (no dibujar)
+  en_estadia: boolean | null; // true = el fix cae dentro de una estadía (es pin, no rastro)
+  spread_ventana_m: number | null; // dispersión de la ventana usada para clasificar
+}
+
+/**
+ * Una "estadía" (pin "estuvo aquí") calculada por el backend en `v_node_estadias`.
+ * Reemplaza al cálculo cliente de paradas: el servidor agrupa los fixes quietos
+ * en un solo punto representativo (lat_pin/lon_pin) con su duración.
+ */
+export interface Estadia {
+  node_id: string;
+  desde: string; // ISO UTC — inicio de la permanencia
+  hasta: string; // ISO UTC — fin de la permanencia
+  minutos: number; // duración total en minutos
+  n_fixes: number; // cuántos fixes reales cayeron en la estadía
+  lat: number; // lat_pin (punto representativo)
+  lon: number; // lon_pin
 }
 
 /** Punto enriquecido en el cliente (rumbo calculado, índice, etc.). */
@@ -45,17 +63,6 @@ export interface EnrichedPoint extends TrackPoint {
   bearingDeg: number | null;
   /** Epoch ms del sample_local, para playback y gradientes. */
   t: number;
-}
-
-/** Una "racha quieta": grupo de puntos consecutivos is_stationary=true. */
-export interface StationaryStint {
-  startIndex: number;
-  endIndex: number;
-  lat: number;
-  lon: number;
-  totalMinutes: number;
-  startPoint: EnrichedPoint;
-  endPoint: EnrichedPoint;
 }
 
 /** Stats agregadas del recorrido para el HUD. */

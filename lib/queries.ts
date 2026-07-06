@@ -1,10 +1,11 @@
 import { supabase } from "./supabase";
-import type { NodeRow, TrackPoint } from "./types";
+import type { NodeRow, TrackPoint, Estadia } from "./types";
 
 const TRACK_COLUMNS =
   "id,node_id,sample_local,gps_time,lat,lon,alt_m,ground_speed," +
   "ground_track_deg,sats,pdop,rx_rssi,snr,rx_snr,hops_away,battery_level,voltage," +
-  "nuevo_fix,dist_prev_fix_m,min_since_prev_fix,is_stationary";
+  "nuevo_fix,dist_prev_fix_m,min_since_prev_fix,is_stationary," +
+  "es_outlier,en_estadia,spread_ventana_m";
 
 /** Lista de nodos disponibles (para el selector). */
 export async function fetchNodes(): Promise<NodeRow[]> {
@@ -18,8 +19,13 @@ export async function fetchNodes(): Promise<NodeRow[]> {
 }
 
 /**
- * Recorrido LIMPIO de un nodo en un rango (para la polyline).
- * Filtra `nuevo_fix=true` (solo fixes reales) y ordena por tiempo.
+ * Rastro de MOVIMIENTO REAL de un nodo en un rango (para la polyline).
+ *
+ * Filtra fixes reales que además NO son ruido y NO caen dentro de una estadía:
+ *   nuevo_fix = true            → solo fixes GPS reales
+ *   es_outlier = false          → descarta saltos/ruido que ensucian la línea
+ *   en_estadia = false          → los puntos "quieto" ya son pines (v_node_estadias)
+ * Así la línea dibuja únicamente el trayecto entre lugares, sin marañas en las paradas.
  */
 export async function fetchTrack(
   nodeId: string,
@@ -31,12 +37,44 @@ export async function fetchTrack(
     .select(TRACK_COLUMNS)
     .eq("node_id", nodeId)
     .eq("nuevo_fix", true)
+    .eq("es_outlier", false)
+    .eq("en_estadia", false)
     .gte("sample_local", fromISO)
     .lte("sample_local", toISO)
     .order("sample_local", { ascending: true });
 
   if (error) throw error;
   return (data ?? []) as unknown as TrackPoint[];
+}
+
+/**
+ * Estadías ("estuvo aquí") de un nodo que solapan el rango visible.
+ * Cada fila es un pin ya calculado por el backend (lat_pin/lon_pin + duración).
+ * Solape: la estadía empieza antes del fin del rango y termina después del inicio.
+ */
+export async function fetchEstadias(
+  nodeId: string,
+  fromISO: string,
+  toISO: string
+): Promise<Estadia[]> {
+  const { data, error } = await supabase
+    .from("v_node_estadias")
+    .select("node_id,desde,hasta,minutos,n_fixes,lat_pin,lon_pin")
+    .eq("node_id", nodeId)
+    .lte("desde", toISO)
+    .gte("hasta", fromISO)
+    .order("desde", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({
+    node_id: r.node_id,
+    desde: r.desde,
+    hasta: r.hasta,
+    minutos: Number(r.minutos),
+    n_fixes: Number(r.n_fixes),
+    lat: Number(r.lat_pin),
+    lon: Number(r.lon_pin),
+  }));
 }
 
 /**

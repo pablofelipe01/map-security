@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
-import type { EnrichedPoint, StationaryStint } from "@/lib/types";
+import type { EnrichedPoint, Estadia } from "@/lib/types";
 import { DEFAULT_CENTER, fmtTime, fmtDuration, compass } from "@/lib/geo";
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
@@ -18,7 +18,7 @@ const GAP_MINUTES = 35;
 
 interface MapViewProps {
   points: EnrichedPoint[];
-  stints: StationaryStint[];
+  estadias: Estadia[];
   latest: EnrichedPoint | null;
   playbackIndex: number | null; // null = sin playback (muestra todo)
   is3D: boolean;
@@ -41,7 +41,7 @@ function recencyColor(f: number): string {
 /** Componente interno que dibuja todo imperativamente sobre el mapa. */
 function Overlays({
   points,
-  stints,
+  estadias,
   latest,
   playbackIndex,
   selectedId,
@@ -129,10 +129,10 @@ function Overlays({
       overlaysRef.current.push(arrow);
     });
 
-    // 3) Marcadores de "quieto" (ámbar) con tiempo de permanencia
-    stints.forEach((s) => {
+    // 3) Estadías "estuvo aquí" (ámbar) — pines calculados por el backend
+    estadias.forEach((e) => {
       const ring = new google.maps.Marker({
-        position: { lat: s.lat, lng: s.lon },
+        position: { lat: e.lat, lng: e.lon },
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 13,
@@ -146,7 +146,7 @@ function Overlays({
         map,
       });
       const dot = new google.maps.Marker({
-        position: { lat: s.lat, lng: s.lon },
+        position: { lat: e.lat, lng: e.lon },
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 6,
@@ -157,27 +157,26 @@ function Overlays({
         },
         zIndex: 8,
         label: {
-          text: fmtDuration(s.totalMinutes),
+          text: fmtDuration(e.minutos),
           color: "#fde68a",
           fontSize: "11px",
           fontWeight: "600",
         },
         map,
-        title: `Parada · ${fmtDuration(s.totalMinutes)}`,
+        title: `Estadía · ${fmtDuration(e.minutos)}`,
       });
       const open = () => {
         infoRef.current?.setContent(
-          `<div style="font:13px ui-sans-serif;color:#0c1018;min-width:160px">
-             <div style="font-weight:700;color:#b45309">⏸ Parada</div>
-             <div>Permanencia: <b>${fmtDuration(s.totalMinutes)}</b></div>
-             <div>Desde ${fmtTime(s.startPoint.sample_local)} a ${fmtTime(
-               s.endPoint.sample_local
-             )}</div>
+          `<div style="font:13px ui-sans-serif;color:#0c1018;min-width:170px">
+             <div style="font-weight:700;color:#b45309">📍 Estuvo aquí</div>
+             <div>Permanencia: <b>${fmtDuration(e.minutos)}</b></div>
+             <div>Desde ${fmtTime(e.desde)} a ${fmtTime(e.hasta)}</div>
+             <div style="color:#64748b">${e.n_fixes} fixes</div>
            </div>`
         );
-        infoRef.current?.setPosition({ lat: s.lat, lng: s.lon });
+        infoRef.current?.setPosition({ lat: e.lat, lng: e.lon });
         infoRef.current?.open(map);
-        onSelectPoint(s.endPoint);
+        onSelectPoint(null);
       };
       dot.addListener("click", open);
       ring.addListener("click", open);
@@ -218,7 +217,7 @@ function Overlays({
       overlaysRef.current.push(halo, core);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, points, stints, latest]);
+  }, [map, points, estadias, latest]);
 
   // --- Marcador de playback (se mueve sin redibujar todo) ---
   useEffect(() => {
@@ -258,13 +257,14 @@ function Overlays({
   // --- Fly-to: encuadra el recorrido cuando cambia el token ---
   useEffect(() => {
     if (!map || typeof google === "undefined") return;
-    if (points.length === 0) {
+    if (points.length === 0 && estadias.length === 0 && !latest) {
       map.setCenter(DEFAULT_CENTER);
       map.setZoom(13);
       return;
     }
     const bounds = new google.maps.LatLngBounds();
     points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lon }));
+    estadias.forEach((e) => bounds.extend({ lat: e.lat, lng: e.lon }));
     if (latest) bounds.extend({ lat: latest.lat, lng: latest.lon });
     map.fitBounds(bounds, 90);
     // eslint-disable-next-line react-hooks/exhaustive-deps
