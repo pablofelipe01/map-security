@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Radio, Check } from "lucide-react";
+import { ChevronDown, Radio, Check, Layers } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { NodeRow } from "@/lib/types";
 import { fmtAgo } from "@/lib/geo";
+
+/** Valor de `selected` que activa la vista de flota completa. */
+export const ALL_NODES = "__all__";
 
 interface Props {
   nodes: NodeRow[];
@@ -14,6 +17,7 @@ interface Props {
 
 export default function NodeSelector({ nodes, selected, onSelect }: Props) {
   const [open, setOpen] = useState(false);
+  const isAll = selected === ALL_NODES;
   const current = nodes.find((n) => n.node_id === selected);
 
   return (
@@ -23,14 +27,20 @@ export default function NodeSelector({ nodes, selected, onSelect }: Props) {
         className="glass-strong flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:border-live-cyan/40"
       >
         <span className="grid h-9 w-9 place-items-center rounded-lg bg-live-cyan/15 text-live-cyan">
-          <Radio size={18} />
+          {isAll ? <Layers size={18} /> : <Radio size={18} />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-slate-100">
-            {current?.long_name ?? current?.node_id ?? "Selecciona un nodo"}
+            {isAll
+              ? "Todos los nodos"
+              : current?.long_name ?? current?.node_id ?? "Selecciona un nodo"}
           </span>
           <span className="block truncate font-mono text-[11px] text-slate-400">
-            {current ? current.node_id : `${nodes.length} disponibles`}
+            {isAll
+              ? `${nodes.length} en el mapa`
+              : current
+              ? current.node_id
+              : `${nodes.length} disponibles`}
           </span>
         </span>
         <ChevronDown
@@ -53,6 +63,33 @@ export default function NodeSelector({ nodes, selected, onSelect }: Props) {
               {nodes.length === 0 && (
                 <li className="px-3 py-2 text-sm text-slate-400">Sin nodos</li>
               )}
+
+              {nodes.length > 0 && (
+                <li>
+                  <button
+                    onClick={() => {
+                      onSelect(ALL_NODES);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition ${
+                      isAll ? "bg-live-cyan/15" : "hover:bg-white/5"
+                    }`}
+                  >
+                    <Layers size={15} className="shrink-0 text-live-cyan" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-slate-100">
+                        Todos los nodos
+                      </span>
+                      <span className="block font-mono text-[11px] text-slate-400">
+                        última posición de cada uno
+                      </span>
+                    </span>
+                    {isAll && <Check size={15} className="text-live-cyan" />}
+                  </button>
+                  <div className="my-1 border-t border-white/10" />
+                </li>
+              )}
+
               {nodes.map((n) => {
                 const active = n.node_id === selected;
                 return (

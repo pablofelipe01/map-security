@@ -65,6 +65,15 @@ export interface EnrichedPoint extends TrackPoint {
   t: number;
 }
 
+/**
+ * Última posición conocida de un nodo, para la vista "Todos los nodos".
+ * `latest` es null si el nodo existe en `nodes` pero aún no reporta posición.
+ */
+export interface NodeLatest {
+  node: NodeRow;
+  latest: TrackPoint | null;
+}
+
 /** Stats agregadas del recorrido para el HUD. */
 export interface TrackStats {
   totalPoints: number;
