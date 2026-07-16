@@ -14,3 +14,6 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 .vercel
+
+# claude code (estado efimero de sesion: pid/sessionId, no debe versionarse)
+.claude/*.lock
