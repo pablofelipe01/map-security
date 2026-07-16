@@ -11,17 +11,30 @@ import {
   AlertTriangle,
   Menu,
   X,
+  RefreshCw,
 } from "lucide-react";
-import NodeSelector from "@/components/NodeSelector";
+import NodeSelector, { ALL_NODES } from "@/components/NodeSelector";
 import TimeRangePicker from "@/components/TimeRangePicker";
 import TrackPlayback from "@/components/TrackPlayback";
 import PointDetail from "@/components/PointDetail";
 import StatsHUD from "@/components/StatsHUD";
-import { fetchNodes, fetchTrack, fetchLatest, fetchEstadias } from "@/lib/queries";
-import { enrichTrack, computeStats } from "@/lib/geo";
+import {
+  fetchNodes,
+  fetchTrack,
+  fetchLatest,
+  fetchEstadias,
+  fetchOverview,
+} from "@/lib/queries";
+import { enrichTrack, computeStats, fmtAgo } from "@/lib/geo";
 import { resolveRange, type RangeKey, type TimeRange } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
-import type { NodeRow, EnrichedPoint, TrackPoint, Estadia } from "@/lib/types";
+import type {
+  NodeRow,
+  EnrichedPoint,
+  TrackPoint,
+  Estadia,
+  NodeLatest,
+} from "@/lib/types";
 
 // El mapa solo en cliente (usa window/google).
 const MapView = dynamic(() => import("@/components/MapView"), {
@@ -44,6 +57,7 @@ export default function Page() {
   const [rawPoints, setRawPoints] = useState<TrackPoint[]>([]);
   const [estadias, setEstadias] = useState<Estadia[]>([]);
   const [latestRaw, setLatestRaw] = useState<TrackPoint | null>(null);
+  const [overview, setOverview] = useState<NodeLatest[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,16 +72,25 @@ export default function Page() {
     [rangeKey, custom]
   );
 
+  const isAll = selected === ALL_NODES;
+
+  /**
+   * Refresca la lista de nodos. Se llama al montar y en cada tick del polling:
+   * un nodo dado de alta después de abrir la pestaña no aparecería nunca si esto
+   * corriera solo una vez, y el `last_seen` del selector se iría quedando viejo.
+   */
+  const loadNodes = useCallback(async () => {
+    const ns = await fetchNodes();
+    setNodes(ns);
+    if (ns[0]) setSelected((s) => s ?? ns[0].node_id);
+    return ns;
+  }, []);
+
   // --- Cargar nodos al inicio ---
   useEffect(() => {
     if (!SUPABASE_READY) return;
-    fetchNodes()
-      .then((ns) => {
-        setNodes(ns);
-        if (ns[0]) setSelected((s) => s ?? ns[0].node_id);
-      })
-      .catch((e) => setError(String(e?.message ?? e)));
-  }, []);
+    loadNodes().catch((e) => setError(String(e?.message ?? e)));
+  }, [loadNodes]);
 
   // --- Cargar track + latest (con polling) ---
   const load = useCallback(
@@ -75,14 +98,23 @@ export default function Page() {
       if (!selected) return;
       if (!opts?.silent) setLoading(true);
       try {
-        const [track, estad, latest] = await Promise.all([
-          fetchTrack(selected, range.fromISO, range.toISO),
-          fetchEstadias(selected, range.fromISO, range.toISO),
-          fetchLatest(selected),
-        ]);
-        setRawPoints(track);
-        setEstadias(estad);
-        setLatestRaw(latest);
+        if (isAll) {
+          // Vista de flota: última posición de cada nodo, sin rastro ni rango.
+          setOverview(await fetchOverview(nodes));
+          setRawPoints([]);
+          setEstadias([]);
+          setLatestRaw(null);
+        } else {
+          const [track, estad, latest] = await Promise.all([
+            fetchTrack(selected, range.fromISO, range.toISO),
+            fetchEstadias(selected, range.fromISO, range.toISO),
+            fetchLatest(selected),
+          ]);
+          setOverview(null);
+          setRawPoints(track);
+          setEstadias(estad);
+          setLatestRaw(latest);
+        }
         setError(null);
         if (opts?.fly) setFlyToken((t) => t + 1);
       } catch (e: any) {
@@ -91,7 +123,7 @@ export default function Page() {
         setLoading(false);
       }
     },
-    [selected, range.fromISO, range.toISO]
+    [selected, isAll, nodes, range.fromISO, range.toISO]
   );
 
   // recarga al cambiar nodo/rango (con fly-to)
@@ -102,11 +134,16 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, range.fromISO, range.toISO]);
 
-  // polling silencioso
+  // polling silencioso (datos + lista de nodos, para ver altas nuevas sin recargar)
   const loadRef = useRef(load);
   loadRef.current = load;
+  const loadNodesRef = useRef(loadNodes);
+  loadNodesRef.current = loadNodes;
   useEffect(() => {
-    const id = setInterval(() => loadRef.current({ silent: true }), POLL_MS);
+    const id = setInterval(() => {
+      loadNodesRef.current().catch(() => {}); // un fallo aquí no debe romper el track
+      loadRef.current({ silent: true });
+    }, POLL_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -126,7 +163,9 @@ export default function Page() {
     if (c) setCustom(c);
   };
 
-  const hasData = points.length > 0 || estadias.length > 0;
+  const hasData = isAll
+    ? (overview?.some((o) => o.latest) ?? false)
+    : points.length > 0 || estadias.length > 0;
 
   return (
     <main className="relative h-screen w-screen overflow-hidden">
@@ -136,6 +175,7 @@ export default function Page() {
           points={points}
           estadias={estadias}
           latest={latest}
+          overview={overview}
           playbackIndex={playbackIndex}
           is3D={is3D}
           selectedId={selectedPoint?.id ?? null}
@@ -209,18 +249,32 @@ export default function Page() {
             }}
           />
         </div>
-        <div className="pointer-events-auto">
-          <TimeRangePicker
-            rangeKey={rangeKey}
-            custom={custom}
-            onChange={handleRange}
-            onRefresh={() => load({ fly: true })}
-            loading={loading}
-          />
-        </div>
-        <div className="pointer-events-auto">
-          <StatsHUD stats={stats} latest={latest} />
-        </div>
+        {/* El rango y las stats de recorrido solo aplican a un nodo concreto:
+            en la vista de flota se muestra el resumen de nodos en su lugar. */}
+        {isAll ? (
+          <div className="pointer-events-auto">
+            <FleetHUD
+              overview={overview}
+              loading={loading}
+              onRefresh={() => load({ fly: true })}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="pointer-events-auto">
+              <TimeRangePicker
+                rangeKey={rangeKey}
+                custom={custom}
+                onChange={handleRange}
+                onRefresh={() => load({ fly: true })}
+                loading={loading}
+              />
+            </div>
+            <div className="pointer-events-auto">
+              <StatsHUD stats={stats} latest={latest} />
+            </div>
+          </>
+        )}
         <div className="hidden flex-1 md:block" />
       </div>
 
@@ -258,10 +312,12 @@ export default function Page() {
           <div className="glass-strong rounded-2xl px-6 py-5 text-center">
             <MapPinOff className="mx-auto mb-2 text-slate-500" />
             <p className="text-sm font-medium text-slate-200">
-              Sin posiciones en este rango
+              {isAll ? "Ningún nodo reporta posición" : "Sin posiciones en este rango"}
             </p>
             <p className="text-xs text-slate-400">
-              {latest
+              {isAll
+                ? "Los nodos están dados de alta pero aún no tienen un fix."
+                : latest
                 ? "El nodo tiene fixes fuera del rango seleccionado. Prueba otro rango."
                 : "Este nodo aún no reporta posición."}
             </p>
@@ -269,6 +325,79 @@ export default function Page() {
         </div>
       )}
     </main>
+  );
+}
+
+/** Un nodo cuenta como "en vivo" si reportó hace menos de esto (min). */
+const LIVE_MINUTES = 15;
+
+/** Resumen de la flota: cuántos nodos hay, cuáles están vivos y dónde. */
+function FleetHUD({
+  overview,
+  loading,
+  onRefresh,
+}: {
+  overview: NodeLatest[] | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const items = overview ?? [];
+  const live = items.filter((o) => {
+    if (!o.latest) return false;
+    const m = (Date.now() - new Date(o.latest.sample_local).getTime()) / 60000;
+    return m <= LIVE_MINUTES;
+  }).length;
+
+  return (
+    <div className="glass-strong rounded-xl p-3">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+          Flota
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400">
+            <b className="text-live">{live}</b> / {items.length} en vivo
+          </span>
+          <button
+            onClick={onRefresh}
+            className="btn-ghost rounded-lg p-1.5"
+            aria-label="Actualizar"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
+      </div>
+
+      <ul className="space-y-1">
+        {items.map((o) => {
+          const mins = o.latest
+            ? (Date.now() - new Date(o.latest.sample_local).getTime()) / 60000
+            : null;
+          const isLive = mins != null && mins <= LIVE_MINUTES;
+          return (
+            <li
+              key={o.node.node_id}
+              className="flex items-center gap-2 rounded-lg px-1.5 py-1"
+            >
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  isLive ? "bg-live" : o.latest ? "bg-amber-500" : "bg-slate-600"
+                }`}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
+                {o.node.long_name ?? o.node.node_id}
+              </span>
+              <span className="shrink-0 font-mono text-[10px] text-slate-400">
+                {o.latest ? fmtAgo(o.latest.sample_local) : "sin posición"}
+              </span>
+            </li>
+          );
+        })}
+        {items.length === 0 && (
+          <li className="px-1.5 py-1 text-xs text-slate-400">Cargando nodos…</li>
+        )}
+      </ul>
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { NodeRow, TrackPoint, Estadia } from "./types";
+import type { NodeRow, TrackPoint, Estadia, NodeLatest } from "./types";
 
 const TRACK_COLUMNS =
   "id,node_id,sample_local,gps_time,lat,lon,alt_m,ground_speed," +
@@ -100,4 +100,24 @@ export async function fetchLatest(nodeId: string): Promise<TrackPoint | null> {
 
   if (error) throw error;
   return ((data ?? [])[0] as unknown as TrackPoint) ?? null;
+}
+
+/**
+ * Última posición de CADA nodo, para la vista "Todos los nodos".
+ *
+ * Hace una consulta por nodo en paralelo en vez de un DISTINCT ON: postgrest no
+ * expone DISTINCT ON y la flota es de unos pocos nodos, así que el costo es
+ * trivial. Si algún día crece, esto se reemplaza por una vista `node_latest`
+ * en el backend y una sola consulta.
+ *
+ * Un nodo que falla o no reporta posición entra con `latest: null` en vez de
+ * tumbar toda la vista: es normal que un nodo recién dado de alta no tenga fix.
+ */
+export async function fetchOverview(nodes: NodeRow[]): Promise<NodeLatest[]> {
+  return Promise.all(
+    nodes.map(async (node) => ({
+      node,
+      latest: await fetchLatest(node.node_id).catch(() => null),
+    }))
+  );
 }

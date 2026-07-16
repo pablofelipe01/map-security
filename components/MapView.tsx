@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
-import type { EnrichedPoint, Estadia } from "@/lib/types";
-import { DEFAULT_CENTER, fmtTime, fmtDuration, compass } from "@/lib/geo";
+import type { EnrichedPoint, Estadia, NodeLatest } from "@/lib/types";
+import {
+  DEFAULT_CENTER,
+  fmtTime,
+  fmtDuration,
+  compass,
+  fmtAgo,
+  haversineM,
+} from "@/lib/geo";
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 // Map ID: solo se usa si es un mapa VECTOR válido del mismo proyecto que la key.
@@ -16,15 +23,56 @@ const MAP_ID = USE_VECTOR_MAP_ID ? RAW_MAP_ID : undefined;
 // Umbral para considerar un tramo como "hueco sin reporte" (min).
 const GAP_MINUTES = 35;
 
+// Un nodo se considera "en vivo" si reportó hace menos de esto (min).
+const LIVE_MINUTES = 15;
+
+// Radio para juntar nodos en un mismo marcador (m). Por debajo de esto la
+// diferencia es indistinguible en el mapa y cae dentro del error del GPS.
+const CLUSTER_M = 30;
+
 interface MapViewProps {
   points: EnrichedPoint[];
   estadias: Estadia[];
   latest: EnrichedPoint | null;
+  /** Si no es null, el mapa dibuja la flota completa y omite el rastro. */
+  overview: NodeLatest[] | null;
   playbackIndex: number | null; // null = sin playback (muestra todo)
   is3D: boolean;
   selectedId: number | null;
   onSelectPoint: (p: EnrichedPoint | null) => void;
   flyToken: number; // cambia para forzar fly-to al recorrido
+}
+
+/**
+ * Agrupa nodos que están prácticamente en el mismo sitio.
+ *
+ * Varios nodos juntos es real (comparten caseta, o reportan la posición del
+ * gateway) y sin agrupar sus marcadores y etiquetas quedan encimados e
+ * ilegibles. Se agrupa por distancia y no por coordenada exacta porque en la
+ * práctica difieren en los últimos decimales sin estar en sitios distintos.
+ * Un marcador con la lista adentro es honesto: no inventa desplazamientos que
+ * serían posiciones falsas.
+ */
+function groupByPosition(
+  overview: NodeLatest[]
+): { lat: number; lon: number; items: NodeLatest[] }[] {
+  const groups: { lat: number; lon: number; items: NodeLatest[] }[] = [];
+  for (const o of overview) {
+    if (!o.latest) continue; // nodo sin posición: no se puede dibujar
+    const { lat, lon } = o.latest;
+    const near = groups.find((g) => haversineM({ lat: g.lat, lon: g.lon }, { lat, lon }) <= CLUSTER_M);
+    if (near) near.items.push(o);
+    else groups.push({ lat, lon, items: [o] });
+  }
+  return groups;
+}
+
+/** Minutos desde un ISO, o null si no hay fecha. */
+function minutesSince(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return (Date.now() - t) / 60000;
 }
 
 /** Interpola color dim→brillante según recencia (0..1). */
@@ -43,6 +91,7 @@ function Overlays({
   points,
   estadias,
   latest,
+  overview,
   playbackIndex,
   selectedId,
   onSelectPoint,
@@ -64,6 +113,87 @@ function Overlays({
     overlaysRef.current.forEach((o) => (o as google.maps.Marker).setMap?.(null));
     overlaysRef.current = [];
     if (!infoRef.current) infoRef.current = new google.maps.InfoWindow();
+
+    // --- Modo "Todos los nodos": un marcador por posición, sin rastro ---
+    if (overview) {
+      groupByPosition(overview).forEach((g) => {
+        const solo = g.items.length === 1;
+        // El grupo está "en vivo" si al menos uno de sus nodos reportó reciente.
+        const mins = g.items.map((o) => minutesSince(o.latest!.sample_local));
+        const freshest = Math.min(...mins.map((m) => m ?? Infinity));
+        const live = freshest <= LIVE_MINUTES;
+        const color = live ? "#39ff14" : "#f59e0b";
+
+        const halo = new google.maps.Marker({
+          position: { lat: g.lat, lng: g.lon },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 16,
+            fillColor: color,
+            fillOpacity: 0.16,
+            strokeColor: color,
+            strokeOpacity: 0.5,
+            strokeWeight: 1,
+          },
+          zIndex: 9,
+          map,
+        });
+        const core = new google.maps.Marker({
+          position: { lat: g.lat, lng: g.lon },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 7,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: "#05070a",
+            strokeWeight: 2,
+            // Baja el texto para que el círculo no lo tape (se escala con `scale`).
+            labelOrigin: new google.maps.Point(0, 3.4),
+          },
+          zIndex: 10,
+          label: {
+            text: solo
+              ? g.items[0].node.short_name ?? g.items[0].node.node_id
+              : `${g.items.length} nodos`,
+            color: "#e2e8f0",
+            fontSize: "11px",
+            fontWeight: "600",
+          },
+          map,
+          title: solo
+            ? `${g.items[0].node.long_name ?? g.items[0].node.node_id}`
+            : `${g.items.length} nodos en esta posición`,
+        });
+
+        const open = () => {
+          const filas = g.items
+            .map((o) => {
+              const m = minutesSince(o.latest!.sample_local);
+              const dot = (m ?? Infinity) <= LIVE_MINUTES ? "#16a34a" : "#b45309";
+              return `<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+                        <span style="width:7px;height:7px;border-radius:50%;background:${dot}"></span>
+                        <b>${o.node.long_name ?? o.node.node_id}</b>
+                        <span style="color:#64748b">${fmtAgo(o.latest!.sample_local)}</span>
+                      </div>`;
+            })
+            .join("");
+          infoRef.current?.setContent(
+            `<div style="font:13px ui-sans-serif;color:#0c1018;min-width:200px">
+               <div style="font-weight:700">${
+                 solo ? "Nodo" : `${g.items.length} nodos aquí`
+               }</div>
+               ${filas}
+             </div>`
+          );
+          infoRef.current?.setPosition({ lat: g.lat, lng: g.lon });
+          infoRef.current?.open(map);
+        };
+        core.addListener("click", open);
+        halo.addListener("click", open);
+        overlaysRef.current.push(halo, core);
+      });
+      return;
+    }
 
     if (points.length === 0) return;
 
@@ -217,7 +347,19 @@ function Overlays({
       overlaysRef.current.push(halo, core);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, points, estadias, latest]);
+  }, [map, points, estadias, latest, overview]);
+
+  // --- Al cambiar entre flota y nodo, cierra el popup del modo anterior ---
+  // (no basta con limpiar overlays: el InfoWindow es independiente y quedaría
+  // colgado hablando de nodos que ya no se están mostrando)
+  const wasOverview = useRef<boolean | null>(null);
+  useEffect(() => {
+    const isOverview = overview != null;
+    if (wasOverview.current !== null && wasOverview.current !== isOverview) {
+      infoRef.current?.close();
+    }
+    wasOverview.current = isOverview;
+  }, [overview]);
 
   // --- Marcador de playback (se mueve sin redibujar todo) ---
   useEffect(() => {
@@ -257,6 +399,27 @@ function Overlays({
   // --- Fly-to: encuadra el recorrido cuando cambia el token ---
   useEffect(() => {
     if (!map || typeof google === "undefined") return;
+
+    // En modo "Todos" encuadra la flota; si todos comparten posición, fitBounds
+    // sobre un solo punto haría un zoom absurdo, así que centramos con zoom fijo.
+    if (overview) {
+      const pos = overview.filter((o) => o.latest);
+      if (pos.length === 0) {
+        map.setCenter(DEFAULT_CENTER);
+        map.setZoom(13);
+        return;
+      }
+      const bounds = new google.maps.LatLngBounds();
+      pos.forEach((o) => bounds.extend({ lat: o.latest!.lat, lng: o.latest!.lon }));
+      if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+        map.setCenter(bounds.getCenter());
+        map.setZoom(17);
+      } else {
+        map.fitBounds(bounds, 90);
+      }
+      return;
+    }
+
     if (points.length === 0 && estadias.length === 0 && !latest) {
       map.setCenter(DEFAULT_CENTER);
       map.setZoom(13);
