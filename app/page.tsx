@@ -12,6 +12,8 @@ import {
   Menu,
   X,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import NodeSelector, { ALL_NODES } from "@/components/NodeSelector";
 import TimeRangePicker from "@/components/TimeRangePicker";
@@ -66,6 +68,9 @@ export default function Page() {
   const [is3D, setIs3D] = useState(false);
   const [flyToken, setFlyToken] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false); // panel de controles en móvil
+  // Nodos ocultos en la vista de flota (por node_id). Persisten aunque cambie
+  // la lista: un id que ya no existe simplemente no filtra nada.
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const range = useMemo<TimeRange>(
     () => (rangeKey === "custom" && custom ? custom : resolveRange(rangeKey)),
@@ -73,6 +78,27 @@ export default function Page() {
   );
 
   const isAll = selected === ALL_NODES;
+
+  // Lo que realmente se dibuja/encuadra en el mapa: la flota sin los ocultos.
+  // El panel FLOTA sí sigue mostrando todos (para poder volver a activarlos).
+  const visibleOverview = useMemo(
+    () => overview?.filter((o) => !hidden.has(o.node.node_id)) ?? null,
+    [overview, hidden]
+  );
+
+  const toggleHidden = useCallback((nodeId: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      next.has(nodeId) ? next.delete(nodeId) : next.add(nodeId);
+      return next;
+    });
+    setFlyToken((t) => t + 1); // reencuadra a los nodos que quedan visibles
+  }, []);
+
+  const showAllNodes = useCallback(() => {
+    setHidden(new Set());
+    setFlyToken((t) => t + 1);
+  }, []);
 
   /**
    * Refresca la lista de nodos. Se llama al montar y en cada tick del polling:
@@ -175,7 +201,7 @@ export default function Page() {
           points={points}
           estadias={estadias}
           latest={latest}
-          overview={overview}
+          overview={visibleOverview}
           playbackIndex={playbackIndex}
           is3D={is3D}
           selectedId={selectedPoint?.id ?? null}
@@ -257,6 +283,9 @@ export default function Page() {
               overview={overview}
               loading={loading}
               onRefresh={() => load({ fly: true })}
+              hidden={hidden}
+              onToggle={toggleHidden}
+              onShowAll={showAllNodes}
             />
           </div>
         ) : (
@@ -336,10 +365,16 @@ function FleetHUD({
   overview,
   loading,
   onRefresh,
+  hidden,
+  onToggle,
+  onShowAll,
 }: {
   overview: NodeLatest[] | null;
   loading: boolean;
   onRefresh: () => void;
+  hidden: Set<string>;
+  onToggle: (nodeId: string) => void;
+  onShowAll: () => void;
 }) {
   const items = overview ?? [];
   const live = items.filter((o) => {
@@ -347,6 +382,8 @@ function FleetHUD({
     const m = (Date.now() - new Date(o.latest.sample_local).getTime()) / 60000;
     return m <= LIVE_MINUTES;
   }).length;
+  const hiddenCount = items.filter((o) => hidden.has(o.node.node_id)).length;
+  const visibleCount = items.length - hiddenCount;
 
   return (
     <div className="glass-strong rounded-xl p-3">
@@ -368,28 +405,55 @@ function FleetHUD({
         </div>
       </div>
 
+      {/* Estado del filtro: cuántos se ven y atajo para volver a mostrarlos */}
+      {hiddenCount > 0 && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-white/[0.03] px-2 py-1.5">
+          <span className="text-[11px] text-slate-400">
+            Viendo <b className="text-slate-200">{visibleCount}</b> de{" "}
+            {items.length}
+          </span>
+          <button
+            onClick={onShowAll}
+            className="text-[11px] font-medium text-live-cyan hover:underline"
+          >
+            Mostrar todos
+          </button>
+        </div>
+      )}
+
       <ul className="space-y-1">
         {items.map((o) => {
           const mins = o.latest
             ? (Date.now() - new Date(o.latest.sample_local).getTime()) / 60000
             : null;
           const isLive = mins != null && mins <= LIVE_MINUTES;
+          const isHidden = hidden.has(o.node.node_id);
           return (
-            <li
-              key={o.node.node_id}
-              className="flex items-center gap-2 rounded-lg px-1.5 py-1"
-            >
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  isLive ? "bg-live" : o.latest ? "bg-amber-500" : "bg-slate-600"
+            <li key={o.node.node_id}>
+              <button
+                onClick={() => onToggle(o.node.node_id)}
+                title={isHidden ? "Mostrar en el mapa" : "Ocultar del mapa"}
+                className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left transition hover:bg-white/5 ${
+                  isHidden ? "opacity-40" : ""
                 }`}
-              />
-              <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
-                {o.node.long_name ?? o.node.node_id}
-              </span>
-              <span className="shrink-0 font-mono text-[10px] text-slate-400">
-                {o.latest ? fmtAgo(o.latest.sample_local) : "sin posición"}
-              </span>
+              >
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    isLive ? "bg-live" : o.latest ? "bg-amber-500" : "bg-slate-600"
+                  }`}
+                />
+                <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
+                  {o.node.long_name ?? o.node.node_id}
+                </span>
+                <span className="shrink-0 font-mono text-[10px] text-slate-400">
+                  {o.latest ? fmtAgo(o.latest.sample_local) : "sin posición"}
+                </span>
+                {isHidden ? (
+                  <EyeOff size={13} className="shrink-0 text-slate-500" />
+                ) : (
+                  <Eye size={13} className="shrink-0 text-live-cyan" />
+                )}
+              </button>
             </li>
           );
         })}
