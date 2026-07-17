@@ -101,6 +101,8 @@ function Overlays({
   const overlaysRef = useRef<google.maps.MVCObject[]>([]);
   const infoRef = useRef<google.maps.InfoWindow | null>(null);
   const playbackMarkerRef = useRef<google.maps.Marker | null>(null);
+  // Qué popup está abierto ahora, para poder alternar (click de nuevo = cerrar).
+  const openKeyRef = useRef<string | null>(null);
 
   const visibleCount =
     playbackIndex == null ? points.length : Math.min(playbackIndex + 1, points.length);
@@ -112,7 +114,14 @@ function Overlays({
     // limpia overlays previos
     overlaysRef.current.forEach((o) => (o as google.maps.Marker).setMap?.(null));
     overlaysRef.current = [];
-    if (!infoRef.current) infoRef.current = new google.maps.InfoWindow();
+    if (!infoRef.current) {
+      infoRef.current = new google.maps.InfoWindow();
+      // Si se cierra con la "X" del globo, olvidamos qué estaba abierto para
+      // que un nuevo click en ese mismo nodo lo vuelva a abrir (no lo alterne).
+      infoRef.current.addListener("closeclick", () => {
+        openKeyRef.current = null;
+      });
+    }
 
     // --- Modo "Todos los nodos": un marcador por posición, sin rastro ---
     if (overview) {
@@ -165,7 +174,14 @@ function Overlays({
             : `${g.items.length} nodos en esta posición`,
         });
 
+        const key = g.items.map((o) => o.node.node_id).join(",");
         const open = () => {
+          // Click en el mismo nodo que ya tiene el globo abierto: lo cierra.
+          if (openKeyRef.current === key) {
+            infoRef.current?.close();
+            openKeyRef.current = null;
+            return;
+          }
           const filas = g.items
             .map((o) => {
               const m = minutesSince(o.latest!.sample_local);
@@ -177,6 +193,7 @@ function Overlays({
                       </div>`;
             })
             .join("");
+          openKeyRef.current = key;
           infoRef.current?.setContent(
             `<div style="font:13px ui-sans-serif;color:#0c1018;min-width:200px">
                <div style="font-weight:700">${
@@ -306,6 +323,7 @@ function Overlays({
         );
         infoRef.current?.setPosition({ lat: e.lat, lng: e.lon });
         infoRef.current?.open(map);
+        openKeyRef.current = null; // el toggle de nodos no aplica a estadías
         onSelectPoint(null);
       };
       dot.addListener("click", open);
@@ -349,6 +367,16 @@ function Overlays({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, points, estadias, latest, overview]);
 
+  // --- Click en el mapa vacío: cierra el globo abierto ---
+  useEffect(() => {
+    if (!map || typeof google === "undefined") return;
+    const l = map.addListener("click", () => {
+      infoRef.current?.close();
+      openKeyRef.current = null;
+    });
+    return () => l.remove();
+  }, [map]);
+
   // --- Al cambiar entre flota y nodo, cierra el popup del modo anterior ---
   // (no basta con limpiar overlays: el InfoWindow es independiente y quedaría
   // colgado hablando de nodos que ya no se están mostrando)
@@ -357,6 +385,7 @@ function Overlays({
     const isOverview = overview != null;
     if (wasOverview.current !== null && wasOverview.current !== isOverview) {
       infoRef.current?.close();
+      openKeyRef.current = null;
     }
     wasOverview.current = isOverview;
   }, [overview]);
