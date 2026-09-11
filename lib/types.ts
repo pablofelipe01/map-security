@@ -74,6 +74,38 @@ export interface NodeLatest {
   latest: TrackPoint | null;
 }
 
+/** Estado operativo derivado de un tractor. Ver `lib/fleet.ts`. */
+export type TractorEstado = "activa" | "detenida" | "offline" | "sin_gps";
+
+/**
+ * Una fila de la torre de control: un tractor con su estado derivado.
+ *
+ * Separa a propósito tres tiempos que la data cruda mezcla:
+ *  - `latidoPoller`: cuándo corrió el poller (siempre fresco, no dice nada del tractor)
+ *  - `edadFixMin`: edad del último fix GPS real (esto SÍ dice dónde está el tractor)
+ *  - `posicion`: la fila que se dibuja en el mapa
+ */
+export interface FleetItem {
+  node: NodeRow;
+  estado: TractorEstado;
+  /** Fila con la posición a dibujar. null = nunca reportó coordenadas. */
+  posicion: TrackPoint | null;
+  /** Minutos desde el último fix GPS real. null = no hay fix fechado. */
+  edadFixMin: number | null;
+  /** Último `sample_local` visto (latido del poller, no del nodo). */
+  latidoPoller: string | null;
+  /** Metros entre los dos últimos fixes reales. */
+  desplazamientoM: number | null;
+  /** km/h calculados de distancia/tiempo (no de `ground_speed`). */
+  velocidadKmh: number | null;
+  /** Rumbo entre los dos últimos fixes, si hubo desplazamiento real. */
+  rumbo: number | null;
+  /** Cuántos fixes reales trajo la ventana leída. */
+  fixesEnVentana: number;
+  /** false = la posición mostrada no proviene de un fix confirmado. */
+  fixConfirmado: boolean;
+}
+
 /** Stats agregadas del recorrido para el HUD. */
 export interface TrackStats {
   totalPoints: number;

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Nunito_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+// Nunito Sans es la tipografía del patrón SiriusFleet.
+const nunito = Nunito_Sans({
   subsets: ["latin"],
-  variable: "--font-inter",
+  weight: ["400", "600", "700", "800"],
+  variable: "--font-nunito",
   display: "swap",
 });
 
@@ -15,9 +17,9 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Map Security · Rastreo Mesh",
+  title: "SiriusFleet · Flota de tractores",
   description:
-    "Monitoreo en vivo de nodos mesh Meshtastic — recorrido GPS sobre satélite/3D.",
+    "Torre de control de tractores sobre red mesh Meshtastic: estado, última posición confirmada y recorrido de la labor.",
 };
 
 export default function RootLayout({
@@ -26,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={`${inter.variable} ${mono.variable}`}>
-      <body className="bg-base-900 text-slate-100 antialiased">{children}</body>
+    <html lang="es" className={`${nunito.variable} ${mono.variable}`}>
+      <body className="bg-bg text-ink antialiased">{children}</body>
     </html>
   );
 }

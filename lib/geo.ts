@@ -6,6 +6,13 @@ export const BOGOTA_TZ = "America/Bogota";
 export const DEFAULT_CENTER = { lat: 4.48, lng: -72.95 };
 
 const R = 6371000; // radio terrestre en metros
+
+/**
+ * Desplazamiento mínimo de un tramo para contarlo como labor (m).
+ * Mismo umbral que usa el backend en `is_stationary`. Vive aquí duplicado y no
+ * importado de `fleet.ts` para que `geo.ts` no dependa de la capa de flota.
+ */
+const MOVIMIENTO_TRAMO_M = 35;
 const toRad = (d: number) => (d * Math.PI) / 180;
 const toDeg = (r: number) => (r * 180) / Math.PI;
 
@@ -69,9 +76,15 @@ export function enrichTrack(points: TrackPoint[]): EnrichedPoint[] {
 /**
  * Stats agregadas para el HUD.
  *
- * El rastro (`points`) ya viene sin puntos de estadía (solo movimiento real), así
- * que la distancia y los minutos "en movimiento" salen de ahí. Las paradas y los
- * minutos "quieto" vienen de las estadías que calculó el backend (`estadias`).
+ * El rastro (`points`) trae TODOS los fixes reales del rango, incluidos los que
+ * el tractor hizo estando quieto (antes se excluían con `en_estadia`, y eso
+ * borraba recorrido de verdad). Por eso aquí hay que separar explícitamente:
+ * un tramo cuenta como "en labor" sólo si hubo desplazamiento medible. Sumar
+ * todos los minutos daría el turno completo y lo contaría además como
+ * "detenido" vía las estadías, inflando el doble el tiempo total.
+ *
+ * Las detenciones y los minutos quieto vienen de `estadias` (las calcula el
+ * backend agrupando fixes), no de contar fixes aquí.
  */
 export function computeStats(
   points: EnrichedPoint[],
@@ -104,14 +117,23 @@ export function computeStats(
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
     const prev = points[i - 1];
-    if (prev) {
-      // distancia: usa dist_prev_fix_m del backend si está, si no Haversine.
-      dist += p.dist_prev_fix_m ?? haversineM(prev, p);
-    }
-    movingMin += p.min_since_prev_fix ?? 0;
+    if (!prev) continue;
 
-    if (p.ground_speed != null) {
-      maxSpeed = maxSpeed == null ? p.ground_speed : Math.max(maxSpeed, p.ground_speed);
+    // distancia: usa dist_prev_fix_m del backend si está, si no Haversine.
+    const tramoM = p.dist_prev_fix_m ?? haversineM(prev, p);
+    const tramoMin = p.min_since_prev_fix ?? 0;
+
+    // Sólo cuenta como labor si el tractor efectivamente se desplazó. Por
+    // debajo del umbral es ruido del GPS con la máquina parada.
+    if (tramoM < MOVIMIENTO_TRAMO_M) continue;
+
+    dist += tramoM;
+    movingMin += tramoMin;
+
+    // Velocidad máxima medida (km/h), no la reportada por el radio.
+    if (tramoMin > 0) {
+      const kmh = tramoM / 1000 / (tramoMin / 60);
+      maxSpeed = maxSpeed == null ? kmh : Math.max(maxSpeed, kmh);
     }
   }
 
@@ -156,19 +178,6 @@ export function fmtDateTime(iso: string | null): string {
   });
 }
 
-/** "hace X min" relativo a ahora. */
-export function fmtAgo(iso: string | null): string {
-  if (!iso) return "—";
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const min = Math.round(diffMs / 60000);
-  if (min < 1) return "ahora";
-  if (min < 60) return `hace ${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h < 24) return `hace ${h}h ${m}m`;
-  const d = Math.floor(h / 24);
-  return `hace ${d}d`;
-}
 
 /** Distancia legible (m / km). */
 export function fmtDist(m: number): string {
@@ -185,20 +194,9 @@ export function fmtDuration(minutes: number): string {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
-/** Punto cardinal desde un rumbo en grados. */
-export function compass(deg: number | null): string {
-  if (deg == null) return "—";
-  const dirs = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
-  return dirs[Math.round(deg / 45) % 8];
-}
 
-/** Valor o guion para nullables. */
-export function orDash(
-  v: number | string | null | undefined,
-  suffix = "",
-  digits?: number
-): string {
-  if (v == null || v === "") return "—";
-  if (typeof v === "number" && digits != null) return `${v.toFixed(digits)}${suffix}`;
-  return `${v}${suffix}`;
+
+/** Coordenadas legibles: 5 decimales (~1 m) es todo lo que el GPS resuelve. */
+export function fmtCoords(lat: number, lon: number): string {
+  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }

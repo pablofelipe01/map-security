@@ -1,9 +1,33 @@
+@import "maplibre-gl/dist/maplibre-gl.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Tema Sirius — tokens
+   Duplicados en tailwind.config.ts para poder usarlos como clases;
+   aquí viven para el CSS que se escribe a mano (MapLibre, marcadores).
+   ============================================================ */
 :root {
-  color-scheme: dark;
+  --bg: #f2f5f9;
+  --surface: #ffffff;
+  --surface-2: #f2f6fb;
+  --border: #e1e8f0;
+  --ink: #171717;
+  --ink-2: #55636f;
+  --ink-3: #8a99a8;
+  --accent: #0a55a5;
+  --accent-2: #00a5e9;
+  --brand-green: #76b82a;
+
+  --st-activa: #0ca30c;
+  --st-detenida: #b97a00;
+  --st-offline: #7b8794;
+  --st-alerta: #d03b3b;
+
+  --radius: 14px;
+  --shadow: 0 2px 10px rgba(13, 42, 78, 0.08), 0 1px 3px rgba(13, 42, 78, 0.06);
+  color-scheme: light;
 }
 
 html,
@@ -12,35 +36,86 @@ body {
 }
 
 body {
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
   overflow: hidden; /* dashboard a pantalla completa */
 }
 
-/* ---- Glassmorphism reutilizable ---- */
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Componentes reutilizables ---- */
 @layer components {
-  .glass {
-    @apply bg-base-800/60 backdrop-blur-md border border-white/10 shadow-glass;
+  .card {
+    @apply bg-surface border border-border rounded-card shadow-card;
   }
-  .glass-strong {
-    @apply bg-base-850/80 backdrop-blur-xl border border-white/10 shadow-glass;
+  .tile {
+    @apply bg-surface border border-border rounded-xl p-3 shadow-tile;
   }
-  .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  .t-label {
+    @apply text-[9px] uppercase tracking-[1.5px] text-ink-3 font-bold;
+  }
+  .t-value {
+    @apply font-mono text-[22px] font-bold leading-none mt-1 text-accent;
+  }
+  .t-unit {
+    @apply text-[11px] text-ink-2 font-medium ml-[3px];
+  }
+  .panel-title {
+    @apply text-[10px] uppercase tracking-[2px] text-ink-3 font-extrabold mb-3;
+  }
+  .card-h2 {
+    @apply text-[11px] uppercase tracking-[2px] text-ink-3 font-extrabold mb-3.5;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5
-      text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply block w-full text-center bg-accent text-white border-0 py-3 px-3
+      rounded-xl font-extrabold text-[13px] tracking-[.4px] transition;
+  }
+  .btn:hover {
+    filter: brightness(1.15);
   }
   .btn-ghost {
-    @apply btn text-slate-300 hover:bg-white/10;
+    @apply btn bg-transparent border-[1.5px] border-border text-ink-2;
   }
-  .btn-active {
-    @apply btn bg-live-cyan/15 text-live-cyan ring-1 ring-live-cyan/40;
+  .btn-ghost:hover {
+    @apply text-accent border-accent-2;
+    filter: none;
   }
-  .stat-label {
-    @apply text-[10px] uppercase tracking-wider text-slate-400;
+  .back-link {
+    @apply text-accent text-xs font-bold bg-transparent border-0 p-0 hover:text-accent-2;
   }
-  .stat-value {
-    @apply font-mono text-lg font-semibold text-slate-100;
+  .kv {
+    @apply flex justify-between gap-3 py-[7px] border-b border-border text-[12.5px];
+  }
+  .kv:last-of-type {
+    @apply border-b-0;
+  }
+  .field {
+    @apply bg-surface text-ink border border-border rounded-[10px] px-[11px] py-[9px]
+      text-[13px] w-full;
+  }
+  .field:focus {
+    outline: 2px solid var(--accent-2);
+    border-color: transparent;
+  }
+  .st-dot {
+    @apply w-2 h-2 rounded-full shrink-0;
+  }
+  .st-dot.activa {
+    background: var(--st-activa);
+    box-shadow: 0 0 5px var(--st-activa);
+  }
+  .st-dot.detenida {
+    background: #fab219;
+  }
+  .st-dot.offline {
+    background: var(--st-offline);
+  }
+  .st-dot.sin_gps {
+    background: var(--st-offline);
+    opacity: 0.55;
   }
 }
 
@@ -50,43 +125,171 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(13, 42, 78, 0.18);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(13, 42, 78, 0.3);
 }
 
-/* ---- Range slider (playback) ---- */
-input[type="range"].playback {
+/* ============================================================
+   MapLibre GL — ajustes al tema
+   El mapa se dibuja en un canvas WebGL, así que aquí sólo se estilizan los
+   controles y la atribución: ninguna regla puede afectar a las teselas.
+   ============================================================ */
+.maplibregl-map {
+  font-family: inherit;
+  background: #dfe7ee;
+}
+.maplibregl-ctrl-group {
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow) !important;
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button {
+  width: 30px !important;
+  height: 30px !important;
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border-radius: 8px 0 0 0 !important;
+  font-size: 9px !important;
+}
+.maplibregl-ctrl-attrib a,
+.maplibregl-ctrl-attrib {
+  color: var(--ink-3) !important;
+}
+.maplibregl-ctrl-scale {
+  border-color: var(--ink-3) !important;
+  color: var(--ink-2) !important;
+  background: rgba(255, 255, 255, 0.75) !important;
+  font-size: 10px !important;
+  border-radius: 0 0 4px 4px;
+}
+/* ---- Marcador de máquina ----
+   MapLibre posiciona el marcador con un transform propio en este contenedor, así
+   que el hover de escala va en `.mk` (el hijo): tocar el transform de aquí
+   pelearía con el posicionamiento del mapa. */
+.machine-marker {
+  background: none;
+  border: none;
+  cursor: pointer;
+  will-change: transform;
+}
+.mk {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+  transition: transform 0.2s;
+}
+.mk:hover {
+  transform: scale(1.15);
+}
+.mk svg {
+  width: 44px;
+  height: 44px;
+}
+/* El ícono mira a la izquierda por defecto: se espeja cuando el rumbo va al este. */
+.mk.flip svg {
+  transform: scaleX(-1);
+}
+.mk-ring {
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+}
+.mk.activa .mk-ring {
+  border-color: var(--st-activa);
+  animation: mk-pulse 2s infinite;
+}
+.mk.detenida .mk-ring {
+  border-color: #fab219;
+}
+.mk.offline {
+  opacity: 0.6;
+}
+.mk.offline .mk-ring {
+  border-color: var(--st-offline);
+  border-style: dashed;
+}
+/* Sin GPS: nunca entregó coordenadas, así que no se dibuja en el mapa; la
+   clase existe para el ícono del panel, donde sí aparece. */
+.mk.sin_gps {
+  opacity: 0.45;
+}
+.mk.sin_gps .mk-ring {
+  border-color: var(--st-offline);
+  border-style: dotted;
+}
+@keyframes mk-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+.mk-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: -4px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.replay-marker .mk {
+  width: 40px;
+  height: 40px;
+}
+.replay-marker .mk svg {
+  width: 34px;
+  height: 34px;
+}
+
+/* ---- Slider del replay ---- */
+input[type="range"].replay {
   -webkit-appearance: none;
   appearance: none;
   height: 6px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border);
   outline: none;
 }
-input[type="range"].playback::-webkit-slider-thumb {
+input[type="range"].replay::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 18px;
   height: 18px;
   border-radius: 9999px;
-  background: #22d3ee;
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.8);
+  background: var(--accent);
   cursor: pointer;
-  border: 2px solid #05070a;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(13, 42, 78, 0.4);
 }
-input[type="range"].playback::-moz-range-thumb {
+input[type="range"].replay::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 9999px;
-  background: #22d3ee;
-  border: 2px solid #05070a;
+  background: var(--accent);
+  border: 2px solid #fff;
   cursor: pointer;
-}
-
-/* Google Maps: oculta el ruido del fondo blanco al cargar tiles */
-.gm-style {
-  background: #05070a !important;
 }

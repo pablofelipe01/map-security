@@ -1,0 +1,414 @@
+"use client";
+
+import type { FleetItem, TrackStats, NodeRow } from "@/lib/types";
+import {
+  ESTADO_META,
+  contarEstados,
+  fmtEdad,
+  fmtVel,
+  ordenarFlota,
+  SIN_SENAL_MIN,
+} from "@/lib/fleet";
+import { maquinaDe, FLOTA_CONFIGURADA } from "@/lib/tractores";
+import { machineSVG } from "@/lib/icons";
+import { fmtCoords, fmtDist, fmtDuration, fmtTime } from "@/lib/geo";
+import type { TractorEstado } from "@/lib/types";
+
+/** Una fila del resumen de histórico. */
+export interface HistoryRow {
+  node: NodeRow;
+  stats: TrackStats;
+  puntos: number;
+}
+
+interface Props {
+  open: boolean;
+  onToggle: () => void;
+  mode: "live" | "history";
+  date: string;
+  fleet: FleetItem[] | null;
+  history: HistoryRow[];
+  selectedId: string | null;
+  onSelect: (nodeId: string) => void;
+  onDeselect: () => void;
+  onOpenMachine: (nodeId: string) => void;
+  loading: boolean;
+  onRefresh: () => void;
+}
+
+export default function SidePanel(p: Props) {
+  return (
+    <aside
+      className={`absolute bottom-3.5 right-3.5 top-3.5 z-[1000] flex w-[332px] max-w-[calc(100vw-28px)] flex-col rounded-card border border-border bg-white/95 shadow-card backdrop-blur-md transition-transform ${
+        p.open ? "" : "translate-x-[calc(100%+14px)]"
+      }`}
+    >
+      <button
+        onClick={p.onToggle}
+        title="Mostrar / ocultar panel"
+        className={`absolute top-3.5 h-11 w-[30px] border border-border bg-white/95 text-[15px] text-ink-2 ${
+          p.open
+            ? "-left-[30px] rounded-l-[10px] border-r-0"
+            : "-left-[30px] rotate-180 rounded-r-[10px] border-l-0"
+        }`}
+      >
+        ‹
+      </button>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        {p.mode === "history" ? (
+          <HistoryPanel {...p} />
+        ) : p.selectedId ? (
+          <MachinePanel {...p} />
+        ) : (
+          <FleetPanel {...p} />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/* ============================ EN VIVO: flota ============================ */
+
+const ORDEN_CONTADORES: TractorEstado[] = [
+  "activa",
+  "detenida",
+  "offline",
+  "sin_gps",
+];
+
+function FleetPanel({ fleet, onSelect, selectedId, loading, onRefresh }: Props) {
+  const items = fleet ? ordenarFlota(fleet) : [];
+  const conteo = contarEstados(items);
+
+  return (
+    <>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="panel-title mb-0">Flota · hoy</span>
+        <button
+          onClick={onRefresh}
+          className="back-link"
+          title="Actualizar"
+          aria-label="Actualizar"
+        >
+          {loading ? "…" : "↻"}
+        </button>
+      </div>
+
+      {/* Contadores por estado */}
+      <div className="mb-3 grid grid-cols-4 gap-1.5">
+        {ORDEN_CONTADORES.map((e) => {
+          const m = ESTADO_META[e];
+          const n = conteo[e];
+          return (
+            <div
+              key={e}
+              title={m.ayuda}
+              className={`rounded-[10px] bg-surface-2 px-1.5 py-1.5 text-center ${
+                n === 0 ? "opacity-40" : ""
+              }`}
+            >
+              <div className={`font-mono text-base font-bold ${m.texto}`}>
+                {n}
+              </div>
+              <div className="text-[9px] uppercase tracking-[1px] text-ink-3">
+                {m.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {items.map((i) => {
+        const maq = maquinaDe(
+          i.node.node_id,
+          i.node.long_name,
+          i.node.short_name
+        );
+        const sel = i.node.node_id === selectedId;
+        return (
+          <button
+            key={i.node.node_id}
+            onClick={() => onSelect(i.node.node_id)}
+            className={`flex w-full items-center gap-2.5 rounded-xl border p-2.5 text-left transition ${
+              sel
+                ? "border-accent bg-[#eaf2fb]"
+                : "border-transparent hover:bg-surface-2"
+            }`}
+          >
+            <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-bold">
+                {maq.nombre}
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-2">
+                <span className={`st-dot ${i.estado}`} />
+                {ESTADO_META[i.estado].label} · {maq.codigo}
+              </span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block font-mono text-xs font-semibold">
+                {i.posicion ? fmtEdad(i.edadFixMin) : "—"}
+              </span>
+              <span className="block text-[9px] tracking-[1px] text-ink-3">
+                ÚLT. FIX
+              </span>
+            </span>
+          </button>
+        );
+      })}
+
+      {items.length === 0 && (
+        <p className="py-2 text-[12.5px] text-ink-3">
+          {loading ? "Consultando la flota…" : "Sin máquinas registradas"}
+        </p>
+      )}
+
+      {!FLOTA_CONFIGURADA && items.length > 0 && <AvisoFlotaSinBautizar />}
+    </>
+  );
+}
+
+/* ==================== EN VIVO: máquina seleccionada ==================== */
+
+function MachinePanel({
+  fleet,
+  selectedId,
+  onDeselect,
+  onOpenMachine,
+  history,
+}: Props) {
+  const item = fleet?.find((f) => f.node.node_id === selectedId);
+  if (!item) return null;
+  const maq = maquinaDe(
+    item.node.node_id,
+    item.node.long_name,
+    item.node.short_name
+  );
+  const meta = ESTADO_META[item.estado];
+  // Las cifras del día vienen del mismo cálculo que alimenta el histórico, para
+  // que "12,4 km hoy" diga lo mismo en los dos modos.
+  const hoy = history.find((h) => h.node.node_id === item.node.node_id)?.stats;
+
+  return (
+    <>
+      <button className="back-link" onClick={onDeselect}>
+        ‹ Flota
+      </button>
+
+      <div className="mb-1 mt-2.5 flex items-center gap-3">
+        <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[46px] w-[46px]" />
+        <div>
+          <div className="text-[17px] font-extrabold leading-tight">
+            {maq.nombre}
+          </div>
+          <div className="font-mono text-[11px] tracking-[1px] text-ink-2">
+            {maq.codigo} · {maq.tipo.toUpperCase()}
+          </div>
+        </div>
+      </div>
+
+      <span
+        className="mb-3.5 mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px]"
+        style={{ color: meta.color, borderColor: meta.color }}
+        title={meta.ayuda}
+      >
+        <span className={`st-dot ${item.estado}`} />
+        {meta.label}
+      </span>
+
+      <div className="my-3.5 grid grid-cols-2 gap-2.5">
+        <Tile label="Recorrido hoy" value={hoy ? fmtDist(hoy.totalDistanceM) : "—"} />
+        <Tile
+          label="En labor hoy"
+          value={hoy ? fmtDuration(hoy.movingMinutes) : "—"}
+        />
+        <Tile label="Detenciones" value={hoy ? String(hoy.stops) : "—"} />
+        <Tile label="Velocidad" value={fmtVel(item.velocidadKmh)} />
+      </div>
+
+      {/* Operador y labor salen del registro del frontend, no de la máquina:
+          se rotulan como tal para que nadie los lea como telemetría. */}
+      <div className="kv">
+        <span className="text-ink-2">Operador</span>
+        <span className="text-right font-semibold">{maq.operador || "—"}</span>
+      </div>
+      <div className="kv">
+        <span className="text-ink-2">Labor</span>
+        <span className="text-right font-semibold">{maq.labor || "—"}</span>
+      </div>
+      {maq.aplicacion && (
+        <div className="kv">
+          <span className="text-ink-2">Aplicando</span>
+          <span className="text-right font-semibold">{maq.aplicacion}</span>
+        </div>
+      )}
+      <div className="kv">
+        <span className="text-ink-2">Último fix GPS</span>
+        <span className="text-right font-mono font-semibold">
+          {item.posicion?.gps_time ? fmtTime(item.posicion.gps_time) : "—"}
+          <span className="ml-1 font-sans text-[11px] font-normal text-ink-3">
+            ({fmtEdad(item.edadFixMin)})
+          </span>
+        </span>
+      </div>
+      <div className="kv">
+        <span className="text-ink-2">Coordenadas</span>
+        {item.posicion ? (
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard?.writeText(
+                `${item.posicion!.lat}, ${item.posicion!.lon}`
+              )
+            }
+            title="Copiar coordenadas"
+            className="text-right font-mono font-semibold underline decoration-dotted underline-offset-2"
+          >
+            {fmtCoords(item.posicion.lat, item.posicion.lon)}
+          </button>
+        ) : (
+          <span className="text-right font-mono font-semibold">—</span>
+        )}
+      </div>
+      <p className="mt-1 text-[10px] leading-tight text-ink-3">
+        Operador y labor provienen del registro de la flota, no del equipo.
+      </p>
+
+      {item.estado === "offline" && item.posicion && (
+        <p className="mt-2.5 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+          {item.fixConfirmado
+            ? `Su último fix tiene más de ${SIN_SENAL_MIN} min: el punto del mapa es el último lugar conocido, no el actual.`
+            : "Tiene coordenadas pero ningún fix GPS confirmado: la posición no es verificable."}
+        </p>
+      )}
+
+      <button
+        className="btn mt-3"
+        onClick={() => onOpenMachine(item.node.node_id)}
+      >
+        Universo de la máquina →
+      </button>
+    </>
+  );
+}
+
+/* =========================== HISTÓRICO =========================== */
+
+function HistoryPanel({ history, date, selectedId, onSelect }: Props) {
+  const conDatos = history.filter((h) => h.puntos > 0);
+  const totalM = conDatos.reduce((s, h) => s + h.stats.totalDistanceM, 0);
+  const totalMin = conDatos.reduce((s, h) => s + h.stats.movingMinutes, 0);
+  const paradas = conDatos.reduce((s, h) => s + h.stats.stops, 0);
+
+  return (
+    <>
+      <div className="panel-title">Histórico · {date}</div>
+
+      <div className="mb-3 grid grid-cols-2 gap-2.5">
+        <Tile label="Total recorrido" value={fmtDist(totalM)} />
+        <Tile label="Horas en labor" value={fmtDuration(totalMin)} />
+        <Tile label="Detenciones" value={String(paradas)} />
+        <Tile
+          label="Máquinas"
+          value={`${conDatos.length} / ${history.length}`}
+        />
+      </div>
+
+      {history.map((h) => {
+        const maq = maquinaDe(
+          h.node.node_id,
+          h.node.long_name,
+          h.node.short_name
+        );
+        const sel = h.node.node_id === selectedId;
+        const vacio = h.puntos === 0;
+        return (
+          <button
+            key={h.node.node_id}
+            onClick={() => onSelect(h.node.node_id)}
+            className={`flex w-full items-center gap-2.5 rounded-xl border p-2.5 text-left transition ${
+              sel
+                ? "border-accent bg-[#eaf2fb]"
+                : "border-transparent hover:bg-surface-2"
+            } ${vacio ? "opacity-45" : ""}`}
+          >
+            <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-bold">
+                {maq.nombre}
+              </span>
+              <span className="block truncate text-[11px] text-ink-2">
+                {vacio
+                  ? "sin reportes ese día"
+                  : `${maq.codigo} · ${fmtDuration(
+                      h.stats.movingMinutes
+                    )} en labor · ${h.stats.stops} detenciones`}
+              </span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block font-mono text-xs font-semibold">
+                {vacio ? "—" : fmtDist(h.stats.totalDistanceM)}
+              </span>
+              <span className="block text-[9px] tracking-[1px] text-ink-3">
+                RECORRIDO
+              </span>
+            </span>
+          </button>
+        );
+      })}
+
+      {history.length === 0 && (
+        <p className="py-2 text-[12.5px] text-ink-3">Sin datos ese día</p>
+      )}
+    </>
+  );
+}
+
+/* =========================== piezas =========================== */
+
+export function MiniIcon({
+  tipo,
+  color,
+  className = "",
+}: {
+  tipo: Parameters<typeof machineSVG>[0];
+  color: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`block shrink-0 [&>svg]:h-full [&>svg]:w-full ${className}`}
+      dangerouslySetInnerHTML={{ __html: machineSVG(tipo, color) }}
+    />
+  );
+}
+
+export function Tile({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+}) {
+  return (
+    <div className="tile">
+      <div className="t-label">{label}</div>
+      <div className="t-value">
+        {value}
+        {unit && <span className="t-unit">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function AvisoFlotaSinBautizar() {
+  return (
+    <p className="mt-2 rounded-[10px] bg-[#fdf7ea] px-2.5 py-2 text-[10px] leading-tight text-st-detenida">
+      Las máquinas aún usan el nombre de fábrica del nodo. Asigna cada node_id a
+      su tractor en <code className="font-mono">lib/tractores.ts</code>.
+    </p>
+  );
+}

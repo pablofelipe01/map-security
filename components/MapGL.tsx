@@ -1,0 +1,478 @@
+"use client";
+
+import { useCallback, useEffect, useRef } from "react";
+// MapLibre 6 es ESM puro y NO tiene export default: hay que nombrar cada clase.
+// `Map` se renombra porque colisiona con el `Map` de JavaScript que se usa
+// abajo para llevar el registro de marcadores.
+import {
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  ScaleControl,
+  LngLatBounds,
+  type GeoJSONSource,
+  type MapLayerMouseEvent,
+} from "maplibre-gl";
+import type { FleetItem } from "@/lib/types";
+import { ESTADO_META } from "@/lib/fleet";
+import { maquinaDe } from "@/lib/tractores";
+import { markerHTML } from "@/lib/icons";
+import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
+
+/** Un rastro dibujable: los puntos de una máquina en el período visible. */
+export interface Trail {
+  nodeId: string;
+  color: string;
+  /** Ordenados de más antiguo a más reciente, como [lat, lon]. */
+  latlngs: [number, number][];
+  desde: string | null;
+  hasta: string | null;
+}
+
+/** Posición de una máquina en un instante del replay. */
+export interface ReplayPos {
+  nodeId: string;
+  lat: number;
+  lon: number;
+  rumbo: number | null;
+  moviendo: boolean;
+}
+
+interface Props {
+  mode: "live" | "history";
+  fleet: FleetItem[] | null;
+  trails: Trail[];
+  replay: ReplayPos[] | null;
+  selectedId: string | null;
+  onSelect: (nodeId: string) => void;
+  onOpenMachine: (nodeId: string) => void;
+  fitToken: number;
+}
+
+const SRC_TRAILS = "trails";
+const SRC_ENDS = "trail-ends";
+
+/**
+ * Mapa satélite con MapLibre GL JS + imágenes de Esri World Imagery.
+ *
+ * Se reemplazó Leaflet por dos razones concretas:
+ *
+ *  1. Leaflet pinta cada tesela como un `<img>` en el DOM, y su hoja de estilos
+ *     1.9.x aplica `mix-blend-mode: plus-lighter` a esas imágenes. Junto con el
+ *     preflight de Tailwind eso producía teselas lavadas, costuras visibles y
+ *     parpadeo al hacer zoom. MapLibre dibuja todo en un canvas WebGL, así que
+ *     ninguna regla de CSS de la app puede interferir con el mapa.
+ *  2. El zoom es continuo en vez de por pasos, que es lo que se necesita para
+ *     seguir un rastro de labor sin perder el contexto del lote.
+ *
+ * Se mantiene la fuente de teselas de Esri: no pide API key ni facturación, así
+ * que la app no puede quedarse en blanco porque venció una tarjeta.
+ */
+export default function MapGL({
+  mode,
+  fleet,
+  trails,
+  replay,
+  selectedId,
+  onSelect,
+  onOpenMachine,
+  fitToken,
+}: Props) {
+  const divRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const readyRef = useRef(false);
+  // Los datos pueden llegar antes de que el mapa termine de cargar su estilo.
+  // MapLibre tipa sus eventos de forma cerrada (no acepta nombres propios), así
+  // que en vez de un evento personalizado se encola el trabajo y se ejecuta en
+  // el `load`. La última tarea encolada gana, que es lo correcto: dibuja el
+  // estado más reciente.
+  const pendingRef = useRef<(() => void)[]>([]);
+  const markerRef = useRef<Map<string, Marker>>(new Map());
+  const replayRef = useRef<Map<string, Marker>>(new Map());
+  // Handlers frescos sin recrear el mapa.
+  const cbRef = useRef({ onSelect, onOpenMachine });
+  cbRef.current = { onSelect, onOpenMachine };
+
+  /** Ejecuta ahora si el mapa ya cargó; si no, lo deja para el `load`. */
+  const whenReady = useCallback((fn: () => void) => {
+    if (readyRef.current) fn();
+    else pendingRef.current.push(fn);
+  }, []);
+
+  // --- Crear el mapa una sola vez ---
+  useEffect(() => {
+    if (mapRef.current || !divRef.current) return;
+
+    const map = new MapLibreMap({
+      container: divRef.current,
+      // Estilo mínimo declarado a mano: una sola capa ráster. No se carga un
+      // style.json remoto porque sería otra dependencia de red que puede fallar.
+      style: {
+        version: 8,
+        sources: {
+          esri: {
+            type: "raster",
+            tiles: [
+              "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            ],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution: "Imagery © Esri",
+          },
+        },
+        layers: [{ id: "esri", type: "raster", source: "esri" }],
+      },
+      center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
+      zoom: 12,
+      attributionControl: { compact: true },
+      // El doble clic abre la ficha de la máquina, no hace zoom.
+      doubleClickZoom: false,
+    });
+
+    map.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+
+    map.on("load", () => {
+      map.addSource(SRC_TRAILS, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: SRC_TRAILS,
+        type: "line",
+        source: SRC_TRAILS,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 3,
+          "line-opacity": 0.65,
+        },
+      });
+
+      map.addSource(SRC_ENDS, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: SRC_ENDS,
+        type: "circle",
+        source: SRC_ENDS,
+        paint: {
+          "circle-radius": 5,
+          // Inicio: relleno del color de la máquina con borde blanco.
+          // Fin: relleno blanco con borde del color. Igual que en el patrón.
+          "circle-color": [
+            "case",
+            ["==", ["get", "kind"], "start"],
+            ["get", "color"],
+            "#ffffff",
+          ],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": [
+            "case",
+            ["==", ["get", "kind"], "start"],
+            "#ffffff",
+            ["get", "color"],
+          ],
+        },
+      });
+
+      // Clic en un rastro = seleccionar esa máquina.
+      map.on("click", SRC_TRAILS, (e: MapLayerMouseEvent) => {
+        const id = e.features?.[0]?.properties?.nodeId;
+        if (typeof id === "string") cbRef.current.onSelect(id);
+      });
+      map.on("mouseenter", SRC_TRAILS, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", SRC_TRAILS, () => {
+        map.getCanvas().style.cursor = "";
+      });
+
+      readyRef.current = true;
+      // Pinta lo que llegó antes de que el estilo estuviera listo.
+      const pendientes = pendingRef.current;
+      pendingRef.current = [];
+      pendientes.forEach((fn) => fn());
+    });
+
+    mapRef.current = map;
+
+    // El contenedor arranca con alto 0 mientras Next monta el layout, y además
+    // cambia al abrir o cerrar el panel lateral. Un ResizeObserver es la única
+    // forma robusta de mantener el canvas a la medida real.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(divRef.current);
+
+    return () => {
+      ro.disconnect();
+      pendingRef.current = [];
+      map.remove();
+      mapRef.current = null;
+      readyRef.current = false;
+    };
+  }, []);
+
+  // --- Rastros y extremos ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const pintar = () => {
+      const src = map.getSource(SRC_TRAILS) as GeoJSONSource | undefined;
+      const ends = map.getSource(SRC_ENDS) as GeoJSONSource | undefined;
+      if (!src || !ends) return;
+
+      src.setData({
+        type: "FeatureCollection",
+        features: trails
+          .filter((t) => t.latlngs.length >= 2)
+          .map((t) => ({
+            type: "Feature" as const,
+            properties: { nodeId: t.nodeId, color: t.color },
+            geometry: {
+              type: "LineString" as const,
+              // GeoJSON va en [lon, lat]; los datos vienen en [lat, lon].
+              coordinates: t.latlngs.map(([la, lo]) => [lo, la]),
+            },
+          })),
+      });
+
+      // Los extremos sólo aportan en histórico: "¿a qué hora arrancó y paró?".
+      ends.setData({
+        type: "FeatureCollection",
+        features:
+          mode !== "history"
+            ? []
+            : trails.flatMap((t) => {
+                if (t.latlngs.length < 2) return [];
+                const a = t.latlngs[0];
+                const b = t.latlngs[t.latlngs.length - 1];
+                return [
+                  punto(a, t, "start", fmtTime(t.desde)),
+                  punto(b, t, "end", fmtTime(t.hasta)),
+                ];
+              }),
+      });
+    };
+
+    whenReady(pintar);
+  }, [trails, mode, whenReady]);
+
+  // --- Resalte del seleccionado ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const aplicar = () => {
+      if (!map.getLayer(SRC_TRAILS)) return;
+      const esSel = ["==", ["get", "nodeId"], selectedId ?? ""] as unknown;
+      map.setPaintProperty(SRC_TRAILS, "line-width", [
+        "case",
+        esSel,
+        4.5,
+        3,
+      ] as never);
+      map.setPaintProperty(SRC_TRAILS, "line-opacity", [
+        "case",
+        esSel,
+        0.95,
+        selectedId ? 0.25 : 0.65,
+      ] as never);
+    };
+    whenReady(aplicar);
+  }, [selectedId, whenReady]);
+
+  // --- Marcadores de la flota (sólo en vivo) ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (mode !== "live" || !fleet) {
+      markerRef.current.forEach((m) => m.remove());
+      markerRef.current.clear();
+      return;
+    }
+
+    const vistos = new Set<string>();
+    for (const item of fleet) {
+      // Sin coordenadas no hay nada honesto que dibujar: la máquina existe pero
+      // su ubicación no. Aparece en el panel FLOTA como "Sin GPS", no aquí.
+      if (!item.posicion) continue;
+      const id = item.node.node_id;
+      vistos.add(id);
+
+      const maq = maquinaDe(id, item.node.long_name, item.node.short_name);
+      const html = markerHTML({
+        tipo: maq.tipo,
+        color: maq.color,
+        codigo: maq.codigo,
+        estado: item.estado,
+        rumbo: item.rumbo,
+      });
+      const lngLat: [number, number] = [item.posicion.lon, item.posicion.lat];
+
+      let mk = markerRef.current.get(id);
+      if (!mk) {
+        const el = document.createElement("div");
+        el.className = "machine-marker";
+        attachClicks(el, id, cbRef);
+        mk = new Marker({ element: el, anchor: "center" })
+          .setLngLat(lngLat)
+          .addTo(map);
+        markerRef.current.set(id, mk);
+      } else {
+        mk.setLngLat(lngLat);
+      }
+      const el = mk.getElement();
+      el.innerHTML = html;
+      el.title = `${maq.nombre} · ${maq.codigo}\n${
+        ESTADO_META[item.estado].label
+      }`;
+    }
+
+    markerRef.current.forEach((mk, id) => {
+      if (!vistos.has(id)) {
+        mk.remove();
+        markerRef.current.delete(id);
+      }
+    });
+  }, [fleet, mode]);
+
+  // --- Marcadores del replay ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!replay) {
+      replayRef.current.forEach((m) => m.remove());
+      replayRef.current.clear();
+      return;
+    }
+
+    const vistos = new Set<string>();
+    for (const pos of replay) {
+      vistos.add(pos.nodeId);
+      const maq = maquinaDe(pos.nodeId);
+      const color =
+        trails.find((t) => t.nodeId === pos.nodeId)?.color ?? maq.color;
+      const html = markerHTML({
+        tipo: maq.tipo,
+        color,
+        codigo: maq.codigo,
+        estado: pos.moviendo ? "activa" : "detenida",
+        rumbo: pos.rumbo,
+      });
+
+      let mk = replayRef.current.get(pos.nodeId);
+      if (!mk) {
+        const el = document.createElement("div");
+        el.className = "machine-marker replay-marker";
+        mk = new Marker({ element: el, anchor: "center" })
+          .setLngLat([pos.lon, pos.lat])
+          .addTo(map);
+        replayRef.current.set(pos.nodeId, mk);
+      } else {
+        mk.setLngLat([pos.lon, pos.lat]);
+      }
+      mk.getElement().innerHTML = html;
+    }
+
+    replayRef.current.forEach((mk, id) => {
+      if (!vistos.has(id)) {
+        mk.remove();
+        replayRef.current.delete(id);
+      }
+    });
+    // `trails` sólo aporta el color; no debe redibujar el replay al cambiar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replay]);
+
+  // --- Reencuadre ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const pts: [number, number][] = [];
+    const push = (lon: number, lat: number) => pts.push([lon, lat]);
+
+    if (selectedId) {
+      trails
+        .find((x) => x.nodeId === selectedId)
+        ?.latlngs.forEach(([la, lo]) => push(lo, la));
+      const item = fleet?.find((f) => f.node.node_id === selectedId);
+      if (item?.posicion) push(item.posicion.lon, item.posicion.lat);
+    } else {
+      trails.forEach((t) => t.latlngs.forEach(([la, lo]) => push(lo, la)));
+      fleet?.forEach((f) => {
+        if (f.posicion) push(f.posicion.lon, f.posicion.lat);
+      });
+    }
+
+    const encuadrar = () => {
+      if (pts.length === 0) {
+        map.jumpTo({ center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat], zoom: 12 });
+        return;
+      }
+      const b = new LngLatBounds(pts[0], pts[0]);
+      pts.forEach((p) => b.extend(p));
+      // Toda la flota en el mismo sitio: fitBounds sobre un punto haría un zoom
+      // absurdo, así que se centra con un zoom fijo y legible.
+      const ne = b.getNorthEast();
+      const sw = b.getSouthWest();
+      if (ne.lat === sw.lat && ne.lng === sw.lng) {
+        map.easeTo({ center: b.getCenter(), zoom: 16, duration: 600 });
+      } else {
+        map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 600 });
+      }
+    };
+
+    whenReady(encuadrar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitToken]);
+
+  return <div ref={divRef} className="absolute inset-0" />;
+}
+
+/** Punto de inicio o fin de un rastro, como feature de GeoJSON. */
+function punto(
+  [lat, lon]: [number, number],
+  t: Trail,
+  kind: "start" | "end",
+  hora: string
+) {
+  return {
+    type: "Feature" as const,
+    properties: { nodeId: t.nodeId, color: t.color, kind, hora },
+    geometry: { type: "Point" as const, coordinates: [lon, lat] },
+  };
+}
+
+/**
+ * Clic = seleccionar; doble clic = abrir el universo de la máquina.
+ *
+ * El clic sencillo espera 260 ms para no robarle el doble clic. Es el mismo
+ * compromiso del patrón SiriusFleet.
+ */
+function attachClicks(
+  el: HTMLElement,
+  id: string,
+  cbRef: React.MutableRefObject<{
+    onSelect: (id: string) => void;
+    onOpenMachine: (id: string) => void;
+  }>
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      cbRef.current.onSelect(id);
+    }, 260);
+  });
+  el.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    if (timer) clearTimeout(timer);
+    timer = null;
+    cbRef.current.onOpenMachine(id);
+  });
+}

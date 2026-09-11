@@ -1,5 +1,11 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Tema Sirius (siriusagentic.com): blanco, limpio, azul Sirius, esquinas
+ * redondeadas. Los valores replican los tokens del patrón SiriusFleet, de modo
+ * que un color definido aquí y uno escrito en `globals.css` no puedan
+ * divergir.
+ */
 const config: Config = {
   content: [
     "./app/**/*.{ts,tsx}",
@@ -9,46 +15,53 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Mission-control dark palette
-        base: {
-          900: "#05070a",
-          850: "#080b11",
-          800: "#0c1018",
-          700: "#121826",
-          600: "#1a2233",
+        bg: "#f2f5f9",
+        surface: {
+          DEFAULT: "#ffffff",
+          2: "#f2f6fb",
         },
-        live: {
-          DEFAULT: "#39ff14", // verde-lima "vivo"
-          cyan: "#22d3ee",
+        border: "#e1e8f0",
+        ink: {
+          DEFAULT: "#171717",
+          2: "#55636f",
+          3: "#8a99a8",
         },
-        idle: "#f59e0b", // ámbar "quieto"
-        alert: "#ef4444", // rojo
+        accent: {
+          DEFAULT: "#0a55a5", // azul Sirius (logo)
+          2: "#00a5e9", // cian del punto de la i
+        },
+        brand: {
+          green: "#76b82a", // verde del logo
+        },
+        // Estados operativos. Siempre acompañados de texto o ícono, nunca
+        // solo color: un supervisor daltónico tiene que poder leer la flota.
+        st: {
+          activa: "#0ca30c",
+          detenida: "#b97a00",
+          offline: "#7b8794",
+          alerta: "#d03b3b",
+        },
+      },
+      borderRadius: {
+        card: "14px",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+        sans: ["var(--font-nunito)", "-apple-system", "Segoe UI", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "Menlo", "monospace"],
       },
       boxShadow: {
-        glow: "0 0 20px -2px rgba(57,255,20,0.5)",
-        "glow-cyan": "0 0 24px -4px rgba(34,211,238,0.55)",
-        glass: "0 8px 32px -8px rgba(0,0,0,0.6)",
-      },
-      backdropBlur: {
-        xs: "2px",
+        card: "0 2px 10px rgba(13, 42, 78, .08), 0 1px 3px rgba(13, 42, 78, .06)",
+        tile: "0 1px 3px rgba(13,42,78,.05)",
       },
       keyframes: {
-        "pulse-ring": {
-          "0%": { transform: "scale(0.7)", opacity: "0.8" },
-          "100%": { transform: "scale(2.4)", opacity: "0" },
-        },
-        "fade-in": {
-          from: { opacity: "0", transform: "translateY(6px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
+        "mk-pulse": {
+          "0%": { boxShadow: "0 0 0 0 rgba(255,255,255,.45)" },
+          "70%": { boxShadow: "0 0 0 12px rgba(255,255,255,0)" },
+          "100%": { boxShadow: "0 0 0 0 rgba(255,255,255,0)" },
         },
       },
       animation: {
-        "pulse-ring": "pulse-ring 2s ease-out infinite",
-        "fade-in": "fade-in 0.3s ease-out",
+        "mk-pulse": "mk-pulse 2s infinite",
       },
     },
   },

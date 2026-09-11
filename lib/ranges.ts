@@ -1,85 +1,39 @@
 import { BOGOTA_TZ } from "./geo";
 
-export type RangeKey = "24h" | "today" | "yesterday" | "7d" | "custom";
-
 export interface TimeRange {
   fromISO: string;
   toISO: string;
 }
 
+/** Fecha de hoy en Bogotá como "YYYY-MM-DD" (formato de <input type=date>). */
+export function todayLocal(): string {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: BOGOTA_TZ });
+}
+
 /**
- * Inicio de un día (00:00) en Bogotá, devuelto como Date UTC.
- * offsetDays=0 → hoy, -1 → ayer.
+ * Rango UTC que cubre un día completo de Bogotá.
+ * Bogotá es UTC-5 fijo (sin horario de verano), así que el día local va de
+ * 05:00Z a 05:00Z del siguiente. Hacerlo con aritmética explícita evita el
+ * clásico error de tomar el día UTC y perder las primeras 5 horas de la
+ * jornada, que en campo son las de más trabajo.
  */
-function bogotaDayStart(offsetDays: number): Date {
-  // Bogotá es UTC-5 fijo (sin DST).
-  const now = new Date();
-  // "ahora" en Bogotá
-  const bogotaNow = new Date(
-    now.toLocaleString("en-US", { timeZone: BOGOTA_TZ })
-  );
-  bogotaNow.setDate(bogotaNow.getDate() + offsetDays);
-  bogotaNow.setHours(0, 0, 0, 0);
-  // ese instante local Bogotá → UTC sumando 5h
-  return new Date(bogotaNow.getTime() + 5 * 3600_000);
+export function dayRange(dateStr: string): TimeRange {
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const from = Date.UTC(y, mo - 1, d, 5, 0, 0);
+  return {
+    fromISO: new Date(from).toISOString(),
+    toISO: new Date(from + 24 * 3600_000).toISOString(),
+  };
 }
 
-/** Resuelve un preset a un rango ISO {from,to}. */
-export function resolveRange(key: RangeKey): TimeRange {
-  const now = new Date();
-  switch (key) {
-    case "24h":
-      return {
-        fromISO: new Date(now.getTime() - 24 * 3600_000).toISOString(),
-        toISO: now.toISOString(),
-      };
-    case "today": {
-      return {
-        fromISO: bogotaDayStart(0).toISOString(),
-        toISO: now.toISOString(),
-      };
-    }
-    case "yesterday": {
-      return {
-        fromISO: bogotaDayStart(-1).toISOString(),
-        toISO: bogotaDayStart(0).toISOString(),
-      };
-    }
-    case "7d":
-      return {
-        fromISO: new Date(now.getTime() - 7 * 24 * 3600_000).toISOString(),
-        toISO: now.toISOString(),
-      };
-    default:
-      return {
-        fromISO: new Date(now.getTime() - 24 * 3600_000).toISOString(),
-        toISO: now.toISOString(),
-      };
-  }
+/** Corre un "YYYY-MM-DD" n días (n negativo = hacia atrás). */
+export function shiftDay(dateStr: string, n: number): string {
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const t = Date.UTC(y, mo - 1, d) + n * 24 * 3600_000;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
-export const RANGE_LABELS: Record<Exclude<RangeKey, "custom">, string> = {
-  "24h": "Últimas 24h",
-  today: "Hoy",
-  yesterday: "Ayer",
-  "7d": "7 días",
-};
-
-/** Convierte un Date a string para <input type="datetime-local"> en hora Bogotá. */
-export function toLocalInput(d: Date): string {
-  const bogota = new Date(d.toLocaleString("en-US", { timeZone: BOGOTA_TZ }));
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${bogota.getFullYear()}-${pad(bogota.getMonth() + 1)}-${pad(
-    bogota.getDate()
-  )}T${pad(bogota.getHours())}:${pad(bogota.getMinutes())}`;
-}
-
-/** Interpreta un valor de <input datetime-local> (hora Bogotá) como ISO UTC. */
-export function fromLocalInput(value: string): string {
-  // value = "YYYY-MM-DDTHH:mm" en hora Bogotá (UTC-5)
-  const [date, time] = value.split("T");
-  const [y, mo, d] = date.split("-").map(Number);
-  const [h, mi] = time.split(":").map(Number);
-  // Bogotá → UTC sumando 5h
-  return new Date(Date.UTC(y, mo - 1, d, h + 5, mi)).toISOString();
+/** Día de Bogotá al que pertenece un instante ISO. */
+export function bogotaDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("sv-SE", { timeZone: BOGOTA_TZ });
 }
