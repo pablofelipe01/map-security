@@ -14,6 +14,8 @@ import {
   fetchEstadiasDay,
 } from "@/lib/queries";
 import { computeStats, enrichTrack } from "@/lib/geo";
+import { unirTramos } from "@/lib/rutas";
+import { useRutasPorVia } from "@/lib/useRutas";
 import { positionAt, ventanaConDatos } from "@/lib/replay";
 import { todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
@@ -135,7 +137,7 @@ export default function Page() {
     [tracks, estadias]
   );
 
-  const trails = useMemo<Trail[]>(
+  const trailsCrudos = useMemo<Trail[]>(
     () =>
       tracks
         .filter((t) => t.points.length > 0)
@@ -149,6 +151,22 @@ export default function Page() {
             points[points.length - 1].sample_local,
         })),
     [tracks]
+  );
+
+  /**
+   * El mismo recorrido, reconstruido por las vías del predio (ver lib/rutas.ts).
+   * Llega null en el primer render y el mapa dibuja las rectas mientras tanto:
+   * el ruteo mejora el dibujo, no condiciona que haya dibujo.
+   */
+  const rutas = useRutasPorVia(trailsCrudos);
+
+  const trails = useMemo<Trail[]>(
+    () =>
+      trailsCrudos.map((t) => {
+        const tramos = rutas?.get(t.nodeId);
+        return tramos ? { ...t, ruta: unirTramos(tramos) } : t;
+      }),
+    [trailsCrudos, rutas]
   );
 
   const ventana = useMemo(
@@ -166,11 +184,11 @@ export default function Page() {
     if (mode !== "history") return null;
     const out: ReplayPos[] = [];
     for (const t of tracks) {
-      const pos = positionAt(t.points, minute);
+      const pos = positionAt(t.points, minute, rutas?.get(t.node.node_id));
       if (pos) out.push({ nodeId: t.node.node_id, ...pos });
     }
     return out;
-  }, [mode, tracks, minute]);
+  }, [mode, tracks, minute, rutas]);
 
   const latidoPoller = useMemo<string | null>(() => {
     const t = (fleet ?? [])

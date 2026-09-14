@@ -121,6 +121,42 @@ un KMZ nuevo, se vuelve a correr ese comando y se commitea el `.geojson`.
 Convenciones de color en el mapa: **ámbar** balastrada, **blanco** pavimentada
 o ruta, **gris punteado** proyectada (todavía no construida).
 
+#### Los rastros se rutean por las vías
+
+Entre dos fixes pasan ~10 minutos, y a la velocidad de un tractor eso son cientos
+de metros o kilómetros. Uniéndolos con una recta, el rastro cortaba lotes en
+diagonal y atravesaba potreros por donde ninguna máquina pasó: el dibujo era más
+falso que el dato, porque el tractor casi siempre va por una vía.
+
+`lib/rutas.ts` arma un grafo con este mismo GeoJSON y busca, entre cada par de
+fixes consecutivos, el camino más corto por la malla (A\* con techo de
+distancia). El rastro queda pegado a las vías reales y el marcador del replay
+recorre esa polilínea en vez de la diagonal, girando en las curvas.
+
+El GeoJSON viene de topografía, no de un grafo de navegación: dos vías que se
+cruzan en el terreno pueden no compartir un vértice. Por eso el grafo se **cose**
+antes de usarse — se parten los segmentos en sus cruces reales y se unen los
+extremos que caen a menos de 3 m del cuerpo de otra vía. Sin coser, cada vía es
+una isla y no hay ruta posible; cosido, el 96,8 % de la malla queda en una sola
+componente conectada. Se construye en el navegador (~160 ms, una vez por sesión)
+y no en un archivo precalculado, para que no exista una segunda copia de las vías
+que pueda quedar desfasada de la que se pinta.
+
+**Esto sigue siendo una reconstrucción, no una medición.** Entre dos fixes nadie
+sabe por dónde pasó el tractor; el camino más corto es apenas la hipótesis más
+razonable. El ruteo se abstiene —y deja la recta de antes— en los tres casos
+donde inventaría más de lo que aporta:
+
+| Caso | Umbral | Por qué |
+| --- | --- | --- |
+| El fix está lejos de cualquier vía | `RADIO_SNAP_M` = 35 m | La máquina está labrando dentro del lote, no transitando. Es el mismo umbral que `MOVIMIENTO_M`: por debajo, dos posiciones no se distinguen del error del GPS. |
+| El desplazamiento es mínimo | 35 m | Rutear ruido del GPS sólo produce zigzag sobre la vía. |
+| El camino por vías da un rodeo desproporcionado | `> 2,2 × recta + 250 m` | Probablemente falta una vía en el KMZ y el algoritmo está dando media vuelta al predio. |
+
+Ningún fix se mueve de su lugar: la polilínea entra y sale del punto medido, y
+lo único que se rellena es el silencio entre dos mediciones. Cada tramo lleva un
+`porVia` que dice si se resolvió por la malla o quedó recto.
+
 #### Rótulos de bloque y parcela
 
 El mismo script deja un segundo archivo, `vias-guaicaramo-etiquetas.geojson`,
@@ -200,7 +236,8 @@ UI los rotula como tal.
 ## Qué hace
 
 - **EN VIVO**: un marcador por máquina coloreado por estado, con anillo animado
-  y espejado según el rumbo; rastro del día de cada una; panel con contadores
+  y espejado según el rumbo; rastro del día de cada una **ruteado por la malla
+  vial del predio**; panel con contadores
   por estado y lista ordenada por criticidad. Clic = seleccionar y encuadrar,
   doble clic = abrir el universo de la máquina.
 - **HISTÓRICO**: selector de día, recorridos con marcas de inicio/fin y barra de
@@ -251,6 +288,7 @@ nodo no reportó posición nueva); `alt_m`, `pdop`, `rssi` y `battery` pueden ve
 app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
+              rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
               icons (SVG de máquinas) · queries · geo · ranges · types
 public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
               fonts/ (glifos de los rótulos) · worker de maplibre

@@ -27,6 +27,12 @@ export interface Trail {
   color: string;
   /** Ordenados de más antiguo a más reciente, como [lat, lon]. */
   latlngs: [number, number][];
+  /**
+   * El mismo recorrido reconstruido por la malla vial (ver lib/rutas.ts), si
+   * alcanzó a calcularse. Es lo que se dibuja cuando existe; `latlngs` sigue
+   * siendo la verdad medida y es lo que marca los extremos y el encuadre.
+   */
+  ruta?: [number, number][] | null;
   desde: string | null;
   hasta: string | null;
 }
@@ -412,6 +418,15 @@ export default function MapGL({
       map.remove();
       mapRef.current = null;
       readyRef.current = false;
+      // `map.remove()` arranca del DOM los elementos de todos los marcadores,
+      // pero los objetos Marker siguen vivos en estos registros. Si no se
+      // vacían, el efecto que los pinta encuentra el id ya registrado, toma la
+      // rama de "actualizar posición" y jamás los vuelve a añadir al mapa
+      // nuevo: la flota desaparece del mapa aunque siga en el panel. Pasa en
+      // cada remontaje —StrictMode hace uno en desarrollo, y un Fast Refresh
+      // otro—, así que el registro tiene que morir junto con su mapa.
+      markerRef.current.clear();
+      replayRef.current.clear();
     };
   }, []);
 
@@ -435,7 +450,7 @@ export default function MapGL({
             geometry: {
               type: "LineString" as const,
               // GeoJSON va en [lon, lat]; los datos vienen en [lat, lon].
-              coordinates: t.latlngs.map(([la, lo]) => [lo, la]),
+              coordinates: (t.ruta ?? t.latlngs).map(([la, lo]) => [lo, la]),
             },
           })),
       });

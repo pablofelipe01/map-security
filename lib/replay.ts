@@ -1,5 +1,6 @@
 import { bearingDeg, BOGOTA_TZ } from "./geo";
 import { MOVIMIENTO_M } from "./fleet";
+import { posicionEnTramo, type Tramo } from "./rutas";
 import type { TrackPoint } from "./types";
 import type { ReplayPos } from "@/components/MapGL";
 
@@ -56,15 +57,20 @@ function minutoDe(p: Timed): number {
  */
 export function positionAt(
   points: TrackPoint[],
-  minute: number
+  minute: number,
+  tramos?: Tramo[] | null
 ): Omit<ReplayPos, "nodeId"> | null {
   if (points.length === 0) return null;
 
   let prev: Timed | null = null;
   let next: Timed | null = null;
-  for (const p of points as Timed[]) {
-    if (minutoDe(p) <= minute) prev = p;
-    else {
+  let iPrev = -1;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i] as Timed;
+    if (minutoDe(p) <= minute) {
+      prev = p;
+      iPrev = i;
+    } else {
       next = p;
       break;
     }
@@ -79,7 +85,7 @@ export function positionAt(
     moviendo: false,
   });
 
-  const anterior = indexAnterior(points as Timed[], prev);
+  const anterior = iPrev > 0 ? (points[iPrev - 1] as Timed) : null;
 
   // Ya terminó la jornada: se queda en el último fix, no desaparece.
   if (!next) return quieto(prev, anterior);
@@ -93,21 +99,27 @@ export function positionAt(
 
   const f = hueco > 0 ? (minute - a) / hueco : 0;
   const distM = next.dist_prev_fix_m ?? null;
+  // "Moviendo" se decide por el desplazamiento del tramo, no por
+  // `ground_speed`, igual que en el resto de la app.
+  const moviendo = (distM ?? 0) >= MOVIMIENTO_M;
+
+  // Si el tramo se pudo reconstruir por la malla vial, el marcador recorre esa
+  // polilínea en vez de cruzar el lote en diagonal: es el mismo trayecto que ya
+  // está dibujado debajo, así que el ícono va por donde va el rastro y gira en
+  // las curvas. Sigue siendo una hipótesis —ver lib/rutas.ts—, sólo que ahora es
+  // la hipótesis razonable en lugar de la recta imposible.
+  const tramo = tramos?.[iPrev];
+  if (tramo?.porVia && tramo.largoM > 0) {
+    const pos = posicionEnTramo(tramo, f);
+    return { lat: pos.lat, lon: pos.lon, rumbo: pos.rumbo, moviendo };
+  }
 
   return {
     lat: prev.lat + (next.lat - prev.lat) * f,
     lon: prev.lon + (next.lon - prev.lon) * f,
     rumbo: bearingDeg(prev, next),
-    // "Moviendo" se decide por el desplazamiento del tramo, no por
-    // `ground_speed`, igual que en el resto de la app.
-    moviendo: (distM ?? 0) >= MOVIMIENTO_M,
+    moviendo,
   };
-}
-
-/** El fix inmediatamente anterior a `p`, para poder estimar su rumbo. */
-function indexAnterior(points: Timed[], p: Timed): Timed | null {
-  const i = points.indexOf(p);
-  return i > 0 ? points[i - 1] : null;
 }
 
 /** Rango de minutos con datos: evita arrastrar el slider por horas vacías. */
