@@ -17,3 +17,7 @@ npm-debug.log*
 
 # claude code (estado efimero de sesion: pid/sessionId, no debe versionarse)
 .claude/*.lock
+
+# worker de maplibre copiado por scripts/copiar-worker-maplibre.mjs en predev/prebuild
+/public/maplibre-gl-worker.mjs
+/public/maplibre-gl-shared.mjs

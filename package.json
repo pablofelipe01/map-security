@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "copiar-worker": "node scripts/copiar-worker-maplibre.mjs",
+    "predev": "node scripts/copiar-worker-maplibre.mjs",
+    "prebuild": "node scripts/copiar-worker-maplibre.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

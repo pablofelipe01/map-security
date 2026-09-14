@@ -1,0 +1,7 @@
+# El GeoJSON de vías lo genera scripts/kmz-a-geojson.mjs desde el KMZ de
+# topografía: es dato derivado, no código que alguien vaya a revisar línea por
+# línea (son 631 KB en una sola línea). Con `-diff` git muestra "Binary files
+# differ" en vez de volcar el archivo entero, que es lo que hacía reventar a las
+# herramientas que le pasan el diff completo a un modelo para redactar el commit.
+# `linguist-generated` hace lo mismo en la vista de GitHub.
+public/vias-guaicaramo.geojson -diff linguist-generated=true

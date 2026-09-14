@@ -10,8 +10,10 @@ import {
   NavigationControl,
   ScaleControl,
   LngLatBounds,
+  type ExpressionSpecification,
   type GeoJSONSource,
   type MapLayerMouseEvent,
+  setWorkerUrl,
 } from "maplibre-gl";
 import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
@@ -49,8 +51,74 @@ interface Props {
   fitToken: number;
 }
 
+/**
+ * MapLibre resuelve su worker contra `import.meta.url`, y Turbopack no emite ese
+ * archivo hermano: el navegador termina pidiendo una URL que responde el HTML de
+ * 404 y el worker nunca arranca. Sin worker no se procesa ninguna fuente GeoJSON
+ * —las vías y los rastros quedan invisibles sin un solo error visible en el
+ * mapa—, así que se sirve desde `public/` (lo copia
+ * scripts/copiar-worker-maplibre.mjs).
+ */
+setWorkerUrl("/maplibre-gl-worker.mjs");
+
 const SRC_TRAILS = "trails";
 const SRC_ENDS = "trail-ends";
+const SRC_VIAS = "vias";
+
+/**
+ * Vías de Guaicaramo. Se declaran dentro del estilo inicial (y no en el `load`)
+ * para que la capa exista siempre: es el fondo contra el que se lee por dónde
+ * va un tractor, así que no tiene interruptor ni depende de los datos de flota.
+ * El GeoJSON se genera desde el KMZ de topografía con
+ * `scripts/kmz-a-geojson.mjs`; ver README.
+ */
+const VIAS_URL = "/vias-guaicaramo.geojson";
+
+/** Color por tipo de vía; las proyectadas se pintan en su propia capa. */
+const VIAS_COLOR: ExpressionSpecification = [
+  "match",
+  ["get", "TIPO"],
+  "Pavimentada",
+  "#ffffff",
+  "Ruta",
+  "#ffffff",
+  // Balastrada y sus variantes: el caso normal en el predio.
+  "#fbbf24",
+];
+
+/**
+ * Ancho en px. Es una capa de fondo: tiene que dejar leer por dónde va el
+ * tractor sin taparle la imagen satelital ni competir con los rastros, que son
+ * el dato que se mira. De ahí el trazo fino y la opacidad baja.
+ */
+const VIAS_ANCHO: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  9,
+  1.1,
+  12,
+  1.7,
+  14,
+  2.6,
+  17,
+  5,
+];
+
+/** El filete va siempre ~2 px más ancho que la vía, nunca más. */
+const VIAS_BORDE_ANCHO: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  9,
+  2.4,
+  12,
+  3.3,
+  14,
+  4.6,
+  17,
+  8,
+];
 
 /**
  * Mapa satélite con MapLibre GL JS + imágenes de Esri World Imagery.
@@ -116,14 +184,69 @@ export default function MapGL({
               "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
             ],
             tileSize: 256,
-            maxzoom: 19,
+            // La imagen de Esri sobre Guaicaramo llega hasta z18: de z19 en
+            // adelante el servidor responde 200 con el mosaico "Map data not yet
+            // available". Declarando el techo real, MapLibre estira la tesela de
+            // z18 al acercarse más —se ve borroso, pero se ve— en vez de pedir
+            // teselas que no existen. Las vías y los marcadores siguen nítidos
+            // porque son vectores.
+            maxzoom: 18,
             attribution: "Imagery © Esri",
           },
+          [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
         },
-        layers: [{ id: "esri", type: "raster", source: "esri" }],
+        layers: [
+          { id: "esri", type: "raster", source: "esri" },
+          // Filete oscuro debajo de la vía: sin él las líneas claras se pierden
+          // sobre los caminos claros de la propia imagen satelital.
+          {
+            id: "vias-borde",
+            type: "line",
+            source: SRC_VIAS,
+            filter: ["!=", ["get", "TIPO"], "Proyectada"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#0b1120",
+              "line-opacity": 0.45,
+              "line-width": VIAS_BORDE_ANCHO,
+            },
+          },
+          {
+            id: SRC_VIAS,
+            type: "line",
+            source: SRC_VIAS,
+            filter: ["!=", ["get", "TIPO"], "Proyectada"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": VIAS_COLOR,
+              "line-width": VIAS_ANCHO,
+              "line-opacity": 0.62,
+            },
+          },
+          // Las vías proyectadas (todavía no construidas) van en una capa
+          // aparte: `line-dasharray` no admite expresiones por dato, así que la
+          // única forma de puntearlas es separarlas con un filtro.
+          {
+            id: "vias-proyectadas",
+            type: "line",
+            source: SRC_VIAS,
+            filter: ["==", ["get", "TIPO"], "Proyectada"],
+            layout: { "line-cap": "butt", "line-join": "round" },
+            paint: {
+              "line-color": "#9ca3af",
+              "line-width": VIAS_ANCHO,
+              "line-opacity": 0.5,
+              "line-dasharray": [2, 2],
+            },
+          },
+        ],
       },
       center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
       zoom: 12,
+      // Tope de acercamiento: un nivel por encima del techo de la imagen (estirón
+      // de 2x) todavía se lee; a partir de ahí la tesela es una mancha verde sin
+      // información y acercarse más sólo engaña.
+      maxZoom: 19,
       attributionControl: { compact: true },
       // El doble clic abre la ficha de la máquina, no hace zoom.
       doubleClickZoom: false,

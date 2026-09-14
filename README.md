@@ -98,6 +98,55 @@ navegador de escritorio o móvil actual esto no es un problema.
 El precio de no usar Google Maps es que no hay 3D fotorrealista, que para
 supervisar labores no aporta nada.
 
+### Capa de vías de Guaicaramo
+
+El mapa **siempre** superpone la malla vial del predio sobre el satélite: sin
+ella no se puede leer por cuál ruta va un tractor, porque en la imagen de Esri
+muchos caminos balastrados se confunden con los linderos de lote. No tiene
+interruptor — se declara dentro del estilo inicial de MapLibre, debajo de los
+rastros y los marcadores, así que nunca tapa la flota.
+
+El origen es el KMZ de topografía (`Vias Guaicaramo/vias.kmz`, 1.666 tramos).
+Se convierte a GeoJSON estático servido desde `public/`:
+
+```bash
+node scripts/kmz-a-geojson.mjs "<ruta>/vias.kmz" public/vias-guaicaramo.geojson
+```
+
+El script no tiene dependencias (descomprime el KMZ con `zlib` y lee el KML con
+expresiones regulares) porque el archivo se actualiza una o dos veces al año y
+no vale la pena arrastrar un parser de KML al proyecto. Cuando topografía mande
+un KMZ nuevo, se vuelve a correr ese comando y se commitea el `.geojson`.
+
+Convenciones de color en el mapa: **ámbar** balastrada, **blanco** pavimentada
+o ruta, **gris punteado** proyectada (todavía no construida).
+
+#### Hasta dónde se puede acercar
+
+La imagen de Esri sobre Guaicaramo llega hasta **z18**. De z19 en adelante el
+servidor no da 404: responde 200 con un mosaico gris que dice "Map data not yet
+available", así que el mapa se llenaba de ese texto al acercarse. La fuente
+declara `maxzoom: 18` —MapLibre estira la última tesela buena en vez de pedir
+las que no existen— y el mapa topa en `maxZoom: 19`, un estirón de 2x que
+todavía deja distinguir palmas. Las vías y los marcadores no se degradan al
+acercarse porque son vectores, no imagen.
+
+#### El worker de MapLibre se sirve desde `public/`
+
+MapLibre arranca su worker con `new Worker(new URL("./maplibre-gl-worker.mjs",
+import.meta.url))`. Turbopack reescribe el bundle pero **no** emite ese archivo
+hermano, así que el navegador pide una URL que Next contesta con el HTML de 404
+y el worker nunca arranca. El síntoma es engañoso: el satélite se sigue viendo
+(el ráster va por el hilo principal) pero **ninguna** fuente GeoJSON se procesa
+— ni las vías ni los rastros del histórico — sin ningún error a la vista.
+
+Por eso `npm run dev` y `npm run build` corren antes
+`scripts/copiar-worker-maplibre.mjs`, que copia el worker y su chunk compartido
+a `public/`, y `MapGL.tsx` lo apunta con `setWorkerUrl()`. Los dos archivos
+copiados están en `.gitignore`: se regeneran desde la versión instalada de
+maplibre-gl para que no se desincronicen al actualizar la librería. Si alguna vez
+se levanta el server sin pasar por esos scripts, `npm run copiar-worker` lo arregla.
+
 ### Bautizar la flota — paso pendiente
 
 La tabla `nodes` sólo trae nombres de fábrica (`"Meshtastic 1d35"`) y ninguno de
@@ -171,6 +220,9 @@ app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               icons (SVG de máquinas) · queries · geo · ranges · types
+public/       vias-guaicaramo.geojson (capa fija de vías) · worker de maplibre
+scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
+              copiar-worker-maplibre.mjs (corre solo en predev/prebuild)
 ```
 
 ## Seguridad
