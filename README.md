@@ -121,6 +121,38 @@ un KMZ nuevo, se vuelve a correr ese comando y se commitea el `.geojson`.
 Convenciones de color en el mapa: **ámbar** balastrada, **blanco** pavimentada
 o ruta, **gris punteado** proyectada (todavía no construida).
 
+#### Rótulos de bloque y parcela
+
+El mismo script deja un segundo archivo, `vias-guaicaramo-etiquetas.geojson`,
+con un punto por bloque (48) y uno por parcela (494). El KMZ **no trae polígonos
+de parcela**: cada vía sabe a qué bloque y parcela sirve, así que la etiqueta se
+pone en el promedio de los vértices de las vías de ese código. No es el centroide
+topográfico —si una parcela sólo tiene vía por un costado, el punto cae sobre esa
+vía— pero ubica bien de qué parcela se habla. El día que topografía mande los
+polígonos, se reemplaza por centroides reales sin tocar el mapa.
+
+Se rotulan a zooms distintos porque cumplen funciones distintas:
+
+| | zoom | texto |
+|---|---|---|
+| Bloque | 12–16 | `B.21` |
+| Parcela | 15–16 | `P.12` |
+| Parcela | 16+ | `B.21-P.12` |
+
+El código completo aparece de cerca porque **el número de parcela se repite entre
+bloques** (hay un `P.10` en el B.4 y otro en el B.5): a secas es ambiguo, y de
+cerca es justo cuando alguien lo va a usar para decir dónde está la máquina.
+
+Los rótulos de bloque se dibujan con `text-allow-overlap`, los de parcela no: 48
+etiquetas siempre valen la pena, 494 encimadas no se leen.
+
+La fuente va **auto-hospedada** en `public/fonts/Open Sans Semibold/0-255.pbf`
+(77 KB). MapLibre necesita glifos en PBF para cualquier capa de texto, y usar un
+servidor público de glifos metería otra dependencia de red que puede caerse — el
+mismo criterio que con las teselas. Ese rango cubre ASCII y Latin-1, que alcanza
+para `B.21-P.12`; un rótulo con acentos pediría un rango que no está y no se
+dibujaría.
+
 #### Hasta dónde se puede acercar
 
 La imagen de Esri sobre Guaicaramo llega hasta **z18**. De z19 en adelante el
@@ -220,7 +252,8 @@ app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               icons (SVG de máquinas) · queries · geo · ranges · types
-public/       vias-guaicaramo.geojson (capa fija de vías) · worker de maplibre
+public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
+              fonts/ (glifos de los rótulos) · worker de maplibre
 scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
               copiar-worker-maplibre.mjs (corre solo en predev/prebuild)
 ```

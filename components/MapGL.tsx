@@ -74,6 +74,23 @@ const SRC_VIAS = "vias";
  */
 const VIAS_URL = "/vias-guaicaramo.geojson";
 
+/**
+ * Rótulos de bloque y parcela, derivados del mismo KMZ (ver el script). Van en
+ * su propia fuente porque son puntos, no líneas, y porque se prenden a zooms
+ * distintos: el bloque orienta desde lejos, la parcela sólo tiene sentido
+ * cuando ya estás mirando el lote.
+ */
+const SRC_ETIQ = "vias-etiquetas";
+const ETIQ_URL = "/vias-guaicaramo-etiquetas.geojson";
+
+/**
+ * Una sola familia auto-hospedada en `public/fonts` (77 KB, rango 0-255). No se
+ * usa un servidor de glifos público para no meterle al mapa una dependencia de
+ * red que puede caerse. Los rótulos son ASCII ("B.10", "P.9"), así que ese rango
+ * alcanza: un texto con acentos pediría un rango que no existe y no se dibujaría.
+ */
+const FUENTE = ["Open Sans Semibold"];
+
 /** Color por tipo de vía; las proyectadas se pintan en su propia capa. */
 const VIAS_COLOR: ExpressionSpecification = [
   "match",
@@ -177,6 +194,7 @@ export default function MapGL({
       // style.json remoto porque sería otra dependencia de red que puede fallar.
       style: {
         version: 8,
+        glyphs: "/fonts/{fontstack}/{range}.pbf",
         sources: {
           esri: {
             type: "raster",
@@ -194,6 +212,7 @@ export default function MapGL({
             attribution: "Imagery © Esri",
           },
           [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
+          [SRC_ETIQ]: { type: "geojson", data: ETIQ_URL },
         },
         layers: [
           { id: "esri", type: "raster", source: "esri" },
@@ -237,6 +256,66 @@ export default function MapGL({
               "line-width": VIAS_ANCHO,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
+            },
+          },
+          // Rótulo de bloque: orienta en la vista de predio y se apaga al
+          // acercarse, cuando ya manda la parcela.
+          {
+            id: "etiq-bloque",
+            type: "symbol",
+            source: SRC_ETIQ,
+            filter: ["==", ["get", "clase"], "bloque"],
+            minzoom: 12,
+            maxzoom: 16,
+            layout: {
+              "text-field": ["get", "texto"],
+              "text-font": FUENTE,
+              "text-size": ["interpolate", ["linear"], ["zoom"], 12, 12, 15, 17],
+              "text-letter-spacing": 0.08,
+              // El rótulo de bloque no se sacrifica al declutter: son 48 en todo
+              // el predio y sin ellos no hay forma de ubicarse.
+              "text-allow-overlap": true,
+              "text-ignore-placement": true,
+            },
+            paint: {
+              "text-color": "#ffffff",
+              "text-halo-color": "#0b1120",
+              "text-halo-width": 1.6,
+              "text-opacity": 0.85,
+            },
+          },
+          // Rótulo de parcela: sólo de cerca. Son 494, a menos zoom serían una
+          // mancha de texto sobre el lote.
+          {
+            id: "etiq-parcela",
+            type: "symbol",
+            source: SRC_ETIQ,
+            filter: ["==", ["get", "clase"], "parcela"],
+            minzoom: 15,
+            layout: {
+              // El número de parcela se repite entre bloques (hay un P.10 en el
+              // B.4 y otro en el B.5), así que "P.10" a secas es ambiguo. De
+              // lejos se muestra corto para orientar, y desde z16 —cuando ya se
+              // está trabajando sobre el lote— el código completo, que es el
+              // nombre con el que la parcela existe en topografía.
+              "text-field": [
+                "step",
+                ["zoom"],
+                ["get", "texto"],
+                16,
+                ["get", "cod_bp"],
+              ],
+              "text-font": FUENTE,
+              "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10, 18, 14],
+              // Acá sí se deja que MapLibre descarte los que chocan: es
+              // preferible perder un rótulo a no poder leer ninguno.
+              "text-padding": 4,
+            },
+            paint: {
+              "text-color": "#fde68a",
+              "text-halo-color": "#0b1120",
+              "text-halo-width": 1.4,
+              "text-opacity": 0.9,
             },
           },
         ],

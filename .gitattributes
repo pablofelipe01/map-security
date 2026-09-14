@@ -5,3 +5,7 @@
 # herramientas que le pasan el diff completo a un modelo para redactar el commit.
 # `linguist-generated` hace lo mismo en la vista de GitHub.
 public/vias-guaicaramo.geojson -diff linguist-generated=true
+public/vias-guaicaramo-etiquetas.geojson -diff linguist-generated=true
+
+# Glifos de la fuente de rótulos: binario, no hay nada que versionar en su diff.
+public/fonts/** binary

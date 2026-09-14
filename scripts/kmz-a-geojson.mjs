@@ -84,3 +84,59 @@ for (const [, cuerpo] of kml.matchAll(/<Placemark\b[\s\S]*?<\/Placemark>/g).map(
 
 writeFileSync(salida, JSON.stringify({ type: "FeatureCollection", features }));
 console.log(`${features.length} vías -> ${salida}`);
+
+/**
+ * Puntos de etiqueta para bloques y parcelas.
+ *
+ * El KMZ no trae polígonos de parcela: solo vías, cada una con el bloque y la
+ * parcela a la que sirve. Así que la etiqueta se pone en el promedio de los
+ * vértices de las vías de ese COD_BP. No es el centroide topográfico de la
+ * parcela —si la parcela solo tiene vía por un costado, el punto cae sobre esa
+ * vía— pero ubica bien de qué parcela se está hablando, que es para lo que se
+ * mira el mapa. Cuando topografía mande los polígonos, esto se reemplaza por
+ * sus centroides reales.
+ */
+const centro = (puntos) => {
+  let x = 0, y = 0;
+  for (const [lon, lat] of puntos) { x += lon; y += lat; }
+  return [+(x / puntos.length).toFixed(6), +(y / puntos.length).toFixed(6)];
+};
+
+const acum = (mapa, clave, coords) => {
+  if (!clave) return;
+  if (!mapa.has(clave)) mapa.set(clave, []);
+  mapa.get(clave).push(...coords);
+};
+
+const porParcela = new Map();
+const porBloque = new Map();
+for (const f of features) {
+  const { COD_BP, BLOQUE } = f.properties;
+  acum(porParcela, COD_BP, f.geometry.coordinates);
+  acum(porBloque, BLOQUE, f.geometry.coordinates);
+}
+
+const etiquetas = [];
+for (const [cod, puntos] of porParcela) {
+  // "B.10-P.9" -> se muestra sólo "P.9": el bloque ya se rotula aparte y
+  // repetirlo en cada parcela llena el mapa de texto redundante.
+  const parcela = /-(P\.[^-]+)$/.exec(cod)?.[1] ?? cod;
+  etiquetas.push({
+    type: "Feature",
+    properties: { clase: "parcela", texto: parcela, cod_bp: cod },
+    geometry: { type: "Point", coordinates: centro(puntos) },
+  });
+}
+for (const [bloque, puntos] of porBloque) {
+  etiquetas.push({
+    type: "Feature",
+    properties: { clase: "bloque", texto: `B.${bloque}` },
+    geometry: { type: "Point", coordinates: centro(puntos) },
+  });
+}
+
+const salidaEtiquetas = salida.replace(/\.geojson$/, "") + "-etiquetas.geojson";
+writeFileSync(salidaEtiquetas, JSON.stringify({ type: "FeatureCollection", features: etiquetas }));
+console.log(
+  `${porBloque.size} bloques + ${porParcela.size} parcelas -> ${salidaEtiquetas}`
+);
