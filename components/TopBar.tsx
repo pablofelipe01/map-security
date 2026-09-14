@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { FleetItem } from "@/lib/types";
 import {
@@ -45,9 +46,14 @@ export default function TopBar({
     <header className="relative z-[1200] flex h-[76px] items-center gap-5 border-b border-border bg-surface px-5">
       {/* Marca */}
       <div className="flex shrink-0 items-center gap-2.5">
-        <span className="text-[27px] font-extrabold tracking-[-0.5px] text-accent">
-          sirius
-        </span>
+        <Image
+          src="/Logo-Sirius.png"
+          alt="Sirius"
+          width={1015}
+          height={450}
+          priority
+          className="h-[34px] w-auto"
+        />
         <span className="border-l-2 border-border pl-3 text-[15px] font-extrabold tracking-[3px] text-accent">
           FLEET
         </span>
