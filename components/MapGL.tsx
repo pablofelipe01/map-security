@@ -19,6 +19,7 @@ import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
 import { markerHTML } from "@/lib/icons";
+import { CAPA_EXTREMOS, CAPA_RASTROS } from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
 
 /** Un rastro dibujable: los puntos de una máquina en el período visible. */
@@ -55,6 +56,13 @@ interface Props {
   onSelect: (nodeId: string) => void;
   onOpenMachine: (nodeId: string) => void;
   fitToken: number;
+  /**
+   * Entrega la instancia del mapa (y `null` al desmontarla) para que el
+   * grabador de video pueda dibujar sobre ella y capturar su canvas. Es la
+   * única fisura en el encapsulamiento del mapa, y existe porque el video tiene
+   * que mostrar exactamente lo mismo que la pantalla: ver lib/video.ts.
+   */
+  onMap?: (map: MapLibreMap | null) => void;
 }
 
 /**
@@ -67,8 +75,10 @@ interface Props {
  */
 setWorkerUrl("/maplibre-gl-worker.mjs");
 
-const SRC_TRAILS = "trails";
-const SRC_ENDS = "trail-ends";
+// Los ids de estas dos capas los comparte el grabador de video, que las apaga
+// mientras graba: viven en lib/capas.ts para que no puedan divergir.
+const SRC_TRAILS = CAPA_RASTROS;
+const SRC_ENDS = CAPA_EXTREMOS;
 const SRC_VIAS = "vias";
 
 /**
@@ -168,6 +178,7 @@ export default function MapGL({
   onSelect,
   onOpenMachine,
   fitToken,
+  onMap,
 }: Props) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -181,8 +192,8 @@ export default function MapGL({
   const markerRef = useRef<Map<string, Marker>>(new Map());
   const replayRef = useRef<Map<string, Marker>>(new Map());
   // Handlers frescos sin recrear el mapa.
-  const cbRef = useRef({ onSelect, onOpenMachine });
-  cbRef.current = { onSelect, onOpenMachine };
+  const cbRef = useRef({ onSelect, onOpenMachine, onMap });
+  cbRef.current = { onSelect, onOpenMachine, onMap };
 
   /** Ejecuta ahora si el mapa ya cargó; si no, lo deja para el `load`. */
   const whenReady = useCallback((fn: () => void) => {
@@ -332,6 +343,12 @@ export default function MapGL({
       // de 2x) todavía se lee; a partir de ahí la tesela es una mancha verde sin
       // información y acercarse más sólo engaña.
       maxZoom: 19,
+      // Sin `preserveDrawingBuffer` el buffer de WebGL se limpia apenas el
+      // navegador compone el cuadro, y `drawImage` sobre el canvas del mapa
+      // devuelve negro: el exportador de video (lib/video.ts) produciría un
+      // archivo en negro. Cuesta algo de memoria y de rendimiento en el peor
+      // caso, a cambio de que el mapa se pueda capturar.
+      canvasContextAttributes: { preserveDrawingBuffer: true },
       attributionControl: { compact: true },
       // El doble clic abre la ficha de la máquina, no hace zoom.
       doubleClickZoom: false,
@@ -405,6 +422,7 @@ export default function MapGL({
     });
 
     mapRef.current = map;
+    cbRef.current.onMap?.(map);
 
     // El contenedor arranca con alto 0 mientras Next monta el layout, y además
     // cambia al abrir o cerrar el panel lateral. Un ResizeObserver es la única
@@ -415,6 +433,7 @@ export default function MapGL({
     return () => {
       ro.disconnect();
       pendingRef.current = [];
+      cbRef.current.onMap?.(null);
       map.remove();
       mapRef.current = null;
       readyRef.current = false;

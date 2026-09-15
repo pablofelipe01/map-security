@@ -265,6 +265,15 @@ body {
   height: 34px;
 }
 
+/* ---- Mapa mientras se graba un video ----
+   Los marcadores y los controles son HTML sobre el canvas, así que NO entran en
+   la captura (ver lib/video.ts). Se ocultan para que lo que se ve en pantalla
+   durante la grabación sea lo mismo que va a quedar en el archivo. */
+.grabando .maplibregl-marker,
+.grabando .maplibregl-ctrl-group {
+  display: none;
+}
+
 /* ---- Slider del replay ---- */
 input[type="range"].replay {
   -webkit-appearance: none;

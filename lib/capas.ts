@@ -1,0 +1,20 @@
+/**
+ * Identificadores de las fuentes y capas del mapa.
+ *
+ * Viven fuera de `components/MapGL.tsx` porque el grabador de video
+ * (`lib/video.ts`) tiene que apagar los rastros de las demás máquinas y añadir
+ * sus propias capas sobre el mismo mapa. Compartir las cadenas por aquí evita
+ * que una se renombre en un archivo y el otro deje de encontrarla en silencio:
+ * un id equivocado en MapLibre no lanza error, sólo no dibuja.
+ */
+
+/** Rastros de todas las máquinas (líneas del recorrido). */
+export const CAPA_RASTROS = "trails";
+/** Puntos de inicio y fin de cada rastro. */
+export const CAPA_EXTREMOS = "trail-ends";
+
+/** Capas temporales que sólo existen mientras se graba un video. */
+export const SRC_VIDEO_RUTA = "video-ruta";
+export const CAPA_VIDEO_RUTA = "video-ruta";
+export const SRC_VIDEO_AVANCE = "video-avance";
+export const CAPA_VIDEO_AVANCE = "video-avance";

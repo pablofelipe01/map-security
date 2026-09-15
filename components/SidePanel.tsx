@@ -32,6 +32,8 @@ interface Props {
   onSelect: (nodeId: string) => void;
   onDeselect: () => void;
   onOpenMachine: (nodeId: string) => void;
+  /** Abre el diálogo para exportar el recorrido de ese nodo como video. */
+  onVideo: (nodeId: string) => void;
   loading: boolean;
   onRefresh: () => void;
 }
@@ -77,7 +79,15 @@ const ORDEN_CONTADORES: TractorEstado[] = [
   "sin_gps",
 ];
 
-function FleetPanel({ fleet, onSelect, selectedId, loading, onRefresh }: Props) {
+function FleetPanel({
+  fleet,
+  history,
+  onSelect,
+  onVideo,
+  selectedId,
+  loading,
+  onRefresh,
+}: Props) {
   const items = fleet ? ordenarFlota(fleet) : [];
   const conteo = contarEstados(items);
 
@@ -127,14 +137,12 @@ function FleetPanel({ fleet, onSelect, selectedId, loading, onRefresh }: Props) 
         );
         const sel = i.node.node_id === selectedId;
         return (
-          <button
+          <Fila
             key={i.node.node_id}
+            seleccionada={sel}
             onClick={() => onSelect(i.node.node_id)}
-            className={`flex w-full items-center gap-2.5 rounded-xl border p-2.5 text-left transition ${
-              sel
-                ? "border-accent bg-[#eaf2fb]"
-                : "border-transparent hover:bg-surface-2"
-            }`}
+            puntos={puntosDe(history, i.node.node_id)}
+            onVideo={() => onVideo(i.node.node_id)}
           >
             <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
             <span className="min-w-0 flex-1">
@@ -154,7 +162,7 @@ function FleetPanel({ fleet, onSelect, selectedId, loading, onRefresh }: Props) 
                 ÚLT. FIX
               </span>
             </span>
-          </button>
+          </Fila>
         );
       })}
 
@@ -176,6 +184,7 @@ function MachinePanel({
   selectedId,
   onDeselect,
   onOpenMachine,
+  onVideo,
   history,
 }: Props) {
   const item = fleet?.find((f) => f.node.node_id === selectedId);
@@ -188,7 +197,9 @@ function MachinePanel({
   const meta = ESTADO_META[item.estado];
   // Las cifras del día vienen del mismo cálculo que alimenta el histórico, para
   // que "12,4 km hoy" diga lo mismo en los dos modos.
-  const hoy = history.find((h) => h.node.node_id === item.node.node_id)?.stats;
+  const fila = history.find((h) => h.node.node_id === item.node.node_id);
+  const hoy = fila?.stats;
+  const hoyPuntos = fila?.puntos;
 
   return (
     <>
@@ -289,13 +300,26 @@ function MachinePanel({
       >
         Universo de la máquina →
       </button>
+
+      <button
+        className="btn-ghost mt-2 disabled:opacity-40"
+        disabled={(hoyPuntos ?? 0) < 2}
+        title={
+          (hoyPuntos ?? 0) < 2
+            ? "Hoy no tiene recorrido para grabar"
+            : "Exportar el recorrido de hoy como video"
+        }
+        onClick={() => onVideo(item.node.node_id)}
+      >
+        ⏺ Descargar video del recorrido
+      </button>
     </>
   );
 }
 
 /* =========================== HISTÓRICO =========================== */
 
-function HistoryPanel({ history, date, selectedId, onSelect }: Props) {
+function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
   const conDatos = history.filter((h) => h.puntos > 0);
   const totalM = conDatos.reduce((s, h) => s + h.stats.totalDistanceM, 0);
   const totalMin = conDatos.reduce((s, h) => s + h.stats.movingMinutes, 0);
@@ -324,14 +348,13 @@ function HistoryPanel({ history, date, selectedId, onSelect }: Props) {
         const sel = h.node.node_id === selectedId;
         const vacio = h.puntos === 0;
         return (
-          <button
+          <Fila
             key={h.node.node_id}
+            seleccionada={sel}
+            atenuada={vacio}
             onClick={() => onSelect(h.node.node_id)}
-            className={`flex w-full items-center gap-2.5 rounded-xl border p-2.5 text-left transition ${
-              sel
-                ? "border-accent bg-[#eaf2fb]"
-                : "border-transparent hover:bg-surface-2"
-            } ${vacio ? "opacity-45" : ""}`}
+            puntos={h.puntos}
+            onVideo={() => onVideo(h.node.node_id)}
           >
             <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
             <span className="min-w-0 flex-1">
@@ -354,7 +377,7 @@ function HistoryPanel({ history, date, selectedId, onSelect }: Props) {
                 RECORRIDO
               </span>
             </span>
-          </button>
+          </Fila>
         );
       })}
 
@@ -366,6 +389,96 @@ function HistoryPanel({ history, date, selectedId, onSelect }: Props) {
 }
 
 /* =========================== piezas =========================== */
+
+/**
+ * Una fila de máquina: el cuerpo selecciona, y el botón de la derecha exporta
+ * el recorrido como video.
+ *
+ * Es un `div` con dos botones dentro y no un botón con otro adentro porque
+ * anidar botones es HTML inválido: el navegador rompe el marcado y el botón
+ * interior deja de recibir el clic.
+ */
+function Fila({
+  seleccionada,
+  atenuada,
+  onClick,
+  puntos,
+  onVideo,
+  children,
+}: {
+  seleccionada: boolean;
+  atenuada?: boolean;
+  onClick: () => void;
+  /** Fixes del día: sin al menos dos no hay recorrido que grabar. */
+  puntos: number;
+  onVideo: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`flex w-full items-center rounded-xl border pr-1.5 transition ${
+        seleccionada
+          ? "border-accent bg-[#eaf2fb]"
+          : "border-transparent hover:bg-surface-2"
+      } ${atenuada ? "opacity-45" : ""}`}
+    >
+      <button
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-2.5 p-2.5 text-left"
+      >
+        {children}
+      </button>
+      <BotonVideo disabled={puntos < 2} onClick={onVideo} />
+    </div>
+  );
+}
+
+function BotonVideo({
+  disabled,
+  onClick,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={
+        disabled
+          ? "Sin recorrido ese día"
+          : "Descargar el recorrido como video"
+      }
+      aria-label="Descargar el recorrido como video"
+      className="shrink-0 rounded-lg p-1.5 text-ink-3 transition hover:bg-white hover:text-accent disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-ink-3"
+    >
+      <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true">
+        <rect
+          x="2.5"
+          y="6"
+          width="13"
+          height="12"
+          rx="3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        />
+        <path
+          d="M16.5 10.5 L21 8 v8 l-4.5-2.5 z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/** Fixes que tiene un nodo en el día mostrado. */
+function puntosDe(history: HistoryRow[], nodeId: string): number {
+  return history.find((h) => h.node.node_id === nodeId)?.puntos ?? 0;
+}
 
 export function MiniIcon({
   tipo,

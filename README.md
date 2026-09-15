@@ -244,8 +244,64 @@ UI los rotula como tal.
   replay (play/pausa, ×5–×60, slider acotado a las horas con datos).
 - **Universo de máquina** (`#/m/<node_id>`): totales de 14 días, gráficas de
   km/día y horas en labor/día, y tabla de jornadas con primer y último fix.
+- **Video del recorrido**: cada nodo se puede exportar como un `.mp4` con su
+  jornada animada. Ver abajo.
 - **Frescura del dato** siempre visible, con detección de poller caído.
 - Auto-refresco cada 60 s. Horas en **America/Bogota (UTC-5)**.
+
+### Video del recorrido por nodo
+
+El botón de cámara de cada fila del panel —y el botón del panel de la máquina
+seleccionada— exporta la jornada de ese nodo como video (`lib/video.ts`).
+
+Cómo funciona, y por qué así:
+
+- **Se captura el canvas del mapa**, no se renderiza aparte. La alternativa
+  obligaría a redibujar teselas, vías y rótulos por nuestra cuenta: sería un
+  segundo renderizador que se iría desincronizando del real. Capturando el
+  canvas, el video muestra literalmente lo que la app muestra.
+- Por eso el mapa se crea con `canvasContextAttributes.preserveDrawingBuffer`:
+  sin eso el buffer de WebGL se limpia al componer el cuadro y el archivo sale
+  en negro.
+- El recorrido se recorre con **la misma `positionAt` del replay**, así que el
+  video no puede contar una historia distinta de la barra de replay. Hereda sus
+  límites: entre fix y fix la posición es interpolada. Esa advertencia va
+  **escrita dentro del video**, porque el archivo se comparte suelto y ahí ya no
+  hay app alrededor que la muestre.
+- Los marcadores del mapa son HTML sobre el canvas y **no entran en la
+  captura**: la máquina del video se dibuja a mano con el mismo `machineSVG` del
+  marcador, sobre un lienzo 2D que además lleva el HUD (nombre, hora, km).
+- La grabación va **cuadro a cuadro sobre el mapa real**, así que tarda un rato
+  parecido a lo que dura el video y el mapa no se puede usar mientras tanto
+  (tampoco se puede cambiar de pestaña: el navegador congela el renderizado de
+  las pestañas ocultas). El sondeo automático se pausa para que no cambien los
+  rastros a mitad de la captura. Al terminar —o al cancelar, o al fallar— el
+  mapa vuelve a su cámara y sus capas originales.
+- **Formato MP4 (H.264), no WebM.** El video se comparte y se ve en teléfonos, y
+  iOS no reproduce WebM: en un iPhone el archivo sencillamente no abre. La
+  codificación va por **WebCodecs** (`VideoEncoder`) y el empaquetado por
+  `mp4-muxer`, con:
+  - Perfil **Baseline** primero (el que reproduce cualquier iPhone, incluso
+    viejo), y sólo Main o High si el codificador de la máquina no ofrece
+    Baseline. Verificado en Chrome: sale `Constrained Baseline`, nivel 4.1,
+    `yuv420p`.
+  - `fastStart: 'in-memory'`, que deja el `moov` **antes** del `mdat`. Es lo que
+    permite que un iPhone o WhatsApp empiecen a reproducir sin bajarlo entero y
+    que QuickTime no lo declare corrupto.
+  - Lados pares y ~0.15 bits por píxel y cuadro (≈9 Mb/s en 1080p30): la imagen
+    satelital es ruido de alta frecuencia y con un bitrate de videollamada se
+    convierte en bloques.
+- **`isConfigSupported` no basta.** Se lo vio responder que sí y después tragarse
+  los cuadros sin devolver ninguno (codificador por hardware no disponible de
+  verdad). Antes de grabar se le pasa **un cuadro de prueba**: si no produce
+  nada en 4 s, se descarta ese perfil. Así el respaldo entra antes de grabar y
+  no a la mitad.
+- **Respaldo**: `MediaRecorder` en MP4 (Chrome y Edge recientes lo soportan) y,
+  como último recurso, WebM — que la UI marca explícitamente como "no abre en
+  iPhone" en vez de entregarlo como si nada.
+- Con WebCodecs las marcas de tiempo las pone la app, no el reloj de pared, así
+  que la exportación no depende de ir exactamente a 30 cuadros por segundo. El
+  respaldo por `MediaRecorder` sí, y por eso el bucle consulta `tiempoReal`.
 
 ## Lo que el patrón tiene y aquí no
 
@@ -287,8 +343,10 @@ nodo no reportó posición nueva); `alt_m`, `pdop`, `rssi` y `battery` pueden ve
 ```
 app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
+              VideoModal (diálogo de exportación de video)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
+              video (graba el recorrido) · capas (ids compartidos con el mapa)
               icons (SVG de máquinas) · queries · geo · ranges · types
 public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
               fonts/ (glifos de los rótulos) · worker de maplibre

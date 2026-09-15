@@ -6,6 +6,7 @@ import TopBar from "@/components/TopBar";
 import SidePanel, { type HistoryRow } from "@/components/SidePanel";
 import ReplayBar from "@/components/ReplayBar";
 import MachineView from "@/components/MachineView";
+import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import type { Trail, ReplayPos } from "@/components/MapGL";
 import {
   fetchNodes,
@@ -21,6 +22,7 @@ import { todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
 import { maquinaDe } from "@/lib/tractores";
 import type { Estadia, FleetItem, NodeRow, TrackPoint } from "@/lib/types";
+import type { Map as MapLibreMap } from "maplibre-gl";
 
 // MapLibre toca `window` al importarse: sólo en cliente.
 const MapGL = dynamic(() => import("@/components/MapGL"), {
@@ -56,6 +58,11 @@ export default function Page() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [fitToken, setFitToken] = useState(0);
+
+  // Instancia del mapa, para que el exportador de video pueda capturar su
+  // canvas. Es un ref y no estado: cambiarlo no tiene que redibujar nada.
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const [videoNodeId, setVideoNodeId] = useState<string | null>(null);
 
   const [minute, setMinute] = useState(6 * 60);
   const [playing, setPlaying] = useState(false);
@@ -121,10 +128,12 @@ export default function Page() {
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
-    if (mode !== "live" || hashNode) return;
+    // Durante la grabación de un video el sondeo se detiene: recargar a mitad
+    // cambiaría los rastros que se están capturando.
+    if (mode !== "live" || hashNode || videoNodeId) return;
     const id = setInterval(() => loadRef.current({ silent: true }), POLL_MS);
     return () => clearInterval(id);
-  }, [mode, hashNode]);
+  }, [mode, hashNode, videoNodeId]);
 
   // --- Derivados ---
   const rows = useMemo<HistoryRow[]>(
@@ -189,6 +198,38 @@ export default function Page() {
     }
     return out;
   }, [mode, tracks, minute, rutas]);
+
+  /**
+   * Lo que hay que pasarle al grabador para el nodo elegido. Se arma del mismo
+   * `trails` que está dibujado en el mapa —con su ruta por vías si ya se
+   * calculó—, de modo que el video no pueda mostrar un recorrido distinto del
+   * que se ve en pantalla.
+   */
+  const videoJob = useMemo<VideoJob | null>(() => {
+    if (!videoNodeId) return null;
+    const t = trails.find((x) => x.nodeId === videoNodeId);
+    const pista = tracks.find((x) => x.node.node_id === videoNodeId);
+    if (!t || !pista || t.latlngs.length < 2) return null;
+    const maq = maquinaDe(
+      videoNodeId,
+      pista.node.long_name,
+      pista.node.short_name
+    );
+    return {
+      nodeId: videoNodeId,
+      nombre: maq.nombre,
+      codigo: maq.codigo,
+      color: maq.color,
+      tipo: maq.tipo,
+      fecha: shownDate,
+      points: pista.points,
+      tramos: rutas?.get(videoNodeId) ?? null,
+      ruta: t.ruta ?? t.latlngs,
+      metros:
+        rows.find((r) => r.node.node_id === videoNodeId)?.stats
+          .totalDistanceM ?? 0,
+    };
+  }, [videoNodeId, trails, tracks, rutas, rows, shownDate]);
 
   const latidoPoller = useMemo<string | null>(() => {
     const t = (fleet ?? [])
@@ -267,6 +308,9 @@ export default function Page() {
           onSelect={selectMachine}
           onOpenMachine={openMachine}
           fitToken={fitToken}
+          onMap={(m) => {
+            mapRef.current = m;
+          }}
         />
 
         <SidePanel
@@ -280,6 +324,7 @@ export default function Page() {
           onSelect={selectMachine}
           onDeselect={deselect}
           onOpenMachine={openMachine}
+          onVideo={setVideoNodeId}
           loading={loading}
           onRefresh={() => load({ fit: true })}
         />
@@ -294,6 +339,14 @@ export default function Page() {
             onSpeed={setSpeed}
             ventana={ventana}
             panelOpen={panelOpen}
+          />
+        )}
+
+        {videoJob && (
+          <VideoModal
+            job={videoJob}
+            map={mapRef.current}
+            onClose={() => setVideoNodeId(null)}
           />
         )}
 
