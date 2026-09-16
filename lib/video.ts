@@ -865,16 +865,23 @@ function dibujarHUD(ctx: CanvasRenderingContext2D, d: DatosHUD) {
   ctx.font = sans(11, 600);
   ctx.fillText(`${d.codigo} · ${d.fecha}`, px, y + 43 * k);
 
+  // Reloj en formato de 12 horas: quien recibe el video suelto necesita
+  // distinguir la mañana de la tarde sin hacer la cuenta mental.
+  const { hora, sufijo } = hora12(d.minuto);
   ctx.fillStyle = "#0a55a5";
   ctx.font = mono(26, 800);
-  ctx.fillText(hhmm(d.minuto), px, y + 76 * k);
+  ctx.fillText(hora, px, y + 76 * k);
+  const anchoHora = ctx.measureText(hora).width;
+  ctx.font = sans(12, 800);
+  ctx.fillText(sufijo, px + anchoHora + 6 * k, y + 76 * k);
 
+  const cx = px + 128 * k;
   ctx.fillStyle = "#8a99a8";
   ctx.font = sans(9, 700);
-  ctx.fillText("RECORRIDO", px + 104 * k, y + 60 * k);
+  ctx.fillText("RECORRIDO", cx, y + 60 * k);
   ctx.fillStyle = "#171717";
   ctx.font = mono(15, 700);
-  ctx.fillText(distancia(d.metros), px + 104 * k, y + 76 * k);
+  ctx.fillText(distancia(d.metros), cx, y + 76 * k);
 
   // --- Sello de la app ---
   ctx.fillStyle = "rgba(255,255,255,.85)";
@@ -922,10 +929,15 @@ function recortar(ctx: CanvasRenderingContext2D, txt: string, max: number) {
 
 /* ========================= cifras ========================= */
 
-function hhmm(minuto: number): string {
-  const h = Math.floor(minuto / 60) % 24;
+/** Hora del día en formato 12 h, con el sufijo aparte para dibujarlo menor. */
+function hora12(minuto: number): { hora: string; sufijo: string } {
+  const h24 = Math.floor(minuto / 60) % 24;
   const m = Math.floor(minuto % 60);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return {
+    hora: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+    sufijo: h24 < 12 ? "AM" : "PM",
+  };
 }
 
 function distancia(m: number): string {

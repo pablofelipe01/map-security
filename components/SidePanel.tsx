@@ -9,7 +9,9 @@ import {
   ordenarFlota,
   SIN_SENAL_MIN,
 } from "@/lib/fleet";
-import { maquinaDe, FLOTA_CONFIGURADA } from "@/lib/tractores";
+import { maquinaDe, estaRegistrado, flotaConfigurada } from "@/lib/tractores";
+import { turnosDelDia, type Flota } from "@/lib/registro";
+import { fmtDateTime } from "@/lib/geo";
 import { machineSVG } from "@/lib/icons";
 import { fmtCoords, fmtDist, fmtDuration, fmtTime } from "@/lib/geo";
 import type { TractorEstado } from "@/lib/types";
@@ -34,6 +36,18 @@ interface Props {
   onOpenMachine: (nodeId: string) => void;
   /** Abre el diálogo para exportar el recorrido de ese nodo como video. */
   onVideo: (nodeId: string) => void;
+  /** Abre el diálogo de asignación del nodo (máquina y operador). */
+  onAsignar: (nodeId: string) => void;
+  /** Abre el maestro de máquinas y operadores. */
+  onAdmin: () => void;
+  /** Registro de flota, para listar los turnos del día. */
+  flota: Flota;
+  /**
+   * Cambia cada vez que se guarda un registro. No se lee: está para que React
+   * vuelva a pintar cuando `maquinaDe` empiece a devolver otro nombre, porque
+   * el registro vive en un módulo y no en el estado del componente.
+   */
+  registroVersion: number;
   loading: boolean;
   onRefresh: () => void;
 }
@@ -84,6 +98,7 @@ function FleetPanel({
   history,
   onSelect,
   onVideo,
+  onAdmin,
   selectedId,
   loading,
   onRefresh,
@@ -95,14 +110,24 @@ function FleetPanel({
     <>
       <div className="mb-3 flex items-center justify-between">
         <span className="panel-title mb-0">Flota · hoy</span>
-        <button
-          onClick={onRefresh}
-          className="back-link"
-          title="Actualizar"
-          aria-label="Actualizar"
-        >
-          {loading ? "…" : "↻"}
-        </button>
+        <span className="flex items-center gap-2.5">
+          <button
+            onClick={onAdmin}
+            className="back-link"
+            title="Máquinas y operadores"
+            aria-label="Máquinas y operadores"
+          >
+            Registro
+          </button>
+          <button
+            onClick={onRefresh}
+            className="back-link"
+            title="Actualizar"
+            aria-label="Actualizar"
+          >
+            {loading ? "…" : "↻"}
+          </button>
+        </span>
       </div>
 
       {/* Contadores por estado */}
@@ -172,7 +197,7 @@ function FleetPanel({
         </p>
       )}
 
-      {!FLOTA_CONFIGURADA && items.length > 0 && <AvisoFlotaSinBautizar />}
+      {!flotaConfigurada() && items.length > 0 && <AvisoFlotaSinBautizar />}
     </>
   );
 }
@@ -185,6 +210,9 @@ function MachinePanel({
   onDeselect,
   onOpenMachine,
   onVideo,
+  onAsignar,
+  flota,
+  date,
   history,
 }: Props) {
   const item = fleet?.find((f) => f.node.node_id === selectedId);
@@ -207,17 +235,35 @@ function MachinePanel({
         ‹ Flota
       </button>
 
-      <div className="mb-1 mt-2.5 flex items-center gap-3">
+      {/* La identidad es lo primero que se toca al abrir un nodo: el bloque
+          entero abre el formulario, y si el nodo nunca se bautizó lo dice en
+          vez de fingir que "Meshtastic 1d35" es el nombre de un tractor. */}
+      <button
+        type="button"
+        onClick={() => onAsignar(item.node.node_id)}
+        title="Asignar máquina y operador a este nodo"
+        className="-mx-1.5 mb-1 mt-2.5 flex w-[calc(100%+12px)] items-center gap-3 rounded-xl px-1.5 py-1.5 text-left transition hover:bg-surface-2"
+      >
         <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[46px] w-[46px]" />
-        <div>
-          <div className="text-[17px] font-extrabold leading-tight">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[17px] font-extrabold leading-tight">
             {maq.nombre}
           </div>
           <div className="font-mono text-[11px] tracking-[1px] text-ink-2">
             {maq.codigo} · {maq.tipo.toUpperCase()}
           </div>
         </div>
-      </div>
+        <span className="shrink-0 text-[13px] text-ink-3">✎</span>
+      </button>
+
+      {!estaRegistrado(item.node.node_id) && (
+        <button
+          className="btn-ghost mb-1 border-accent text-accent"
+          onClick={() => onAsignar(item.node.node_id)}
+        >
+          Asignar máquina y operador
+        </button>
+      )}
 
       <span
         className="mb-3.5 mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px]"
@@ -238,16 +284,26 @@ function MachinePanel({
         <Tile label="Velocidad" value={fmtVel(item.velocidadKmh)} />
       </div>
 
-      {/* Operador y labor salen del registro del frontend, no de la máquina:
-          se rotulan como tal para que nadie los lea como telemetría. */}
+      {/* Operador y labor salen del registro de flota, no de la máquina: se
+          rotulan como tal para que nadie los lea como telemetría. */}
       <div className="kv">
-        <span className="text-ink-2">Operador</span>
-        <span className="text-right font-semibold">{maq.operador || "—"}</span>
+        <span className="text-ink-2">Al mando</span>
+        <button
+          type="button"
+          onClick={() => onAsignar(item.node.node_id)}
+          title="Registrar el relevo"
+          className="text-right font-semibold underline decoration-dotted underline-offset-2"
+        >
+          {maq.operador || "asignar"}
+        </button>
       </div>
-      <div className="kv">
-        <span className="text-ink-2">Labor</span>
-        <span className="text-right font-semibold">{maq.labor || "—"}</span>
-      </div>
+      <TurnosDelDia flota={flota} nodeId={item.node.node_id} dia={date} />
+      {maq.labor && (
+        <div className="kv">
+          <span className="text-ink-2">Labor</span>
+          <span className="text-right font-semibold">{maq.labor}</span>
+        </div>
+      )}
       {maq.aplicacion && (
         <div className="kv">
           <span className="text-ink-2">Aplicando</span>
@@ -283,7 +339,7 @@ function MachinePanel({
         )}
       </div>
       <p className="mt-1 text-[10px] leading-tight text-ink-3">
-        Operador y labor provienen del registro de la flota, no del equipo.
+        La máquina y el operador provienen del registro de flota, no del equipo.
       </p>
 
       {item.estado === "offline" && item.posicion && (
@@ -385,6 +441,48 @@ function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
         <p className="py-2 text-[12.5px] text-ink-3">Sin datos ese día</p>
       )}
     </>
+  );
+}
+
+/**
+ * Los relevos que tuvo hoy la máquina de ese nodo.
+ *
+ * Se listan todos y no sólo el vigente: si Juan manejó en la mañana y Pedro de
+ * noche, el recorrido del día es obra de los dos, y mostrar sólo a uno sería
+ * atribuirle mal el trabajo del otro. Con un solo turno no aporta nada y no se
+ * dibuja.
+ */
+function TurnosDelDia({
+  flota,
+  nodeId,
+  dia,
+}: {
+  flota: Flota;
+  nodeId: string;
+  dia: string;
+}) {
+  const asignacion = flota.asignaciones.find(
+    (a) => a.node_id === nodeId && a.hasta == null
+  );
+  if (!asignacion) return null;
+
+  const turnos = turnosDelDia(flota, asignacion.maquina_id, dia);
+  if (turnos.length < 2) return null;
+
+  return (
+    <div className="kv items-start">
+      <span className="text-ink-2">Turnos de hoy</span>
+      <span className="text-right">
+        {turnos.map((t) => (
+          <span key={t.id} className="block">
+            <span className="font-semibold">{t.operador?.nombre ?? "—"}</span>
+            <span className="ml-1.5 font-mono text-[10px] text-ink-3">
+              {fmtDateTime(t.desde)} → {t.hasta ? fmtDateTime(t.hasta) : "ahora"}
+            </span>
+          </span>
+        ))}
+      </span>
+    </div>
   );
 }
 
@@ -520,8 +618,8 @@ export function Tile({
 function AvisoFlotaSinBautizar() {
   return (
     <p className="mt-2 rounded-[10px] bg-[#fdf7ea] px-2.5 py-2 text-[10px] leading-tight text-st-detenida">
-      Las máquinas aún usan el nombre de fábrica del nodo. Asigna cada node_id a
-      su tractor en <code className="font-mono">lib/tractores.ts</code>.
+      Los nodos aún usan su nombre de fábrica. Haz clic en uno para decir en qué
+      máquina va montado y quién la maneja.
     </p>
   );
 }

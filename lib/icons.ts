@@ -29,6 +29,43 @@ export function machineSVG(tipo: TipoMaquina, color: string): string {
     </svg>`;
   }
 
+  if (tipo === "camion") {
+    return `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
+      <rect x="4" y="18" width="32" height="24" rx="3" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.5"/>
+      <rect x="4" y="26" width="32" height="5" fill="${c}"/>
+      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
+      <path d="M44 26 h4 l5 6 h-9 z" fill="#cfe9ff" stroke="#0b0e12" stroke-width="1.2"/>
+      <rect x="4" y="42" width="52" height="4" rx="2" fill="#39424d"/>
+      <circle cx="14" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="14" cy="47" r="3" fill="#5d6a78"/>
+      <circle cx="28" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="28" cy="47" r="3" fill="#5d6a78"/>
+      <circle cx="48" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="48" cy="47" r="3" fill="#5d6a78"/>
+    </svg>`;
+  }
+
+  // La volqueta se dibuja con la tolva levantada: es lo que la distingue de un
+  // camión a 20 px de alto, que es el tamaño real del ícono en el mapa.
+  if (tipo === "volqueta") {
+    return `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
+      <path d="M6 40 L10 14 L38 20 L36 42 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M10 22 L36 27" stroke="#0b0e12" stroke-width="1.2" opacity=".35"/>
+      <path d="M20 40 L32 32" stroke="#39424d" stroke-width="3" stroke-linecap="round"/>
+      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
+      <path d="M44 26 h4 l5 6 h-9 z" fill="#cfe9ff" stroke="#0b0e12" stroke-width="1.2"/>
+      <rect x="6" y="42" width="50" height="4" rx="2" fill="#39424d"/>
+      <circle cx="16" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="16" cy="47" r="3" fill="#5d6a78"/>
+      <circle cx="30" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="30" cy="47" r="3" fill="#5d6a78"/>
+      <circle cx="48" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
+      <circle cx="48" cy="47" r="3" fill="#5d6a78"/>
+    </svg>`;
+  }
+
   if (tipo === "retro") {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>

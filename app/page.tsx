@@ -7,6 +7,8 @@ import SidePanel, { type HistoryRow } from "@/components/SidePanel";
 import ReplayBar from "@/components/ReplayBar";
 import MachineView from "@/components/MachineView";
 import VideoModal, { type VideoJob } from "@/components/VideoModal";
+import AsignacionModal from "@/components/AsignacionModal";
+import FlotaAdmin from "@/components/FlotaAdmin";
 import type { Trail, ReplayPos } from "@/components/MapGL";
 import {
   fetchNodes,
@@ -18,9 +20,15 @@ import { computeStats, enrichTrack } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
 import { useRutasPorVia } from "@/lib/useRutas";
 import { positionAt, ventanaConDatos } from "@/lib/replay";
-import { todayLocal } from "@/lib/ranges";
+import { dayRange, todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
-import { maquinaDe } from "@/lib/tractores";
+import { maquinaDe, setRegistroFlota } from "@/lib/tractores";
+import {
+  fetchFlota,
+  registroEn,
+  FLOTA_VACIA,
+  type Flota,
+} from "@/lib/registro";
 import type { Estadia, FleetItem, NodeRow, TrackPoint } from "@/lib/types";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
@@ -64,6 +72,15 @@ export default function Page() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const [videoNodeId, setVideoNodeId] = useState<string | null>(null);
 
+  // --- Registro de flota (máquinas, operadores y asignaciones) ---
+  // `flota` son los datos crudos; `registroVersion` existe sólo para redibujar,
+  // porque la identidad que usan mapa, panel y video se resuelve con
+  // `maquinaDe`, que lee un módulo y no el estado de React.
+  const [flota, setFlota] = useState<Flota>(FLOTA_VACIA);
+  const [registroVersion, setRegistroVersion] = useState(0);
+  const [asignacionNodeId, setAsignacionNodeId] = useState<string | null>(null);
+  const [adminAbierto, setAdminAbierto] = useState(false);
+
   const [minute, setMinute] = useState(6 * 60);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(15);
@@ -82,6 +99,43 @@ export default function Page() {
 
   /** El día que se está mostrando: hoy en vivo, el elegido en histórico. */
   const shownDate = mode === "live" ? todayLocal() : date;
+
+  // El registro se lee aparte del resto: que las tablas no existan todavía —o
+  // que fallen— no puede dejar el mapa sin máquinas, así que no entra al
+  // Promise.all de `load` ni propaga su error al banner.
+  const recargarFlota = useCallback(async () => {
+    if (!SUPABASE_READY) return;
+    try {
+      setFlota(await fetchFlota());
+    } catch (e) {
+      console.warn("[flota] no se pudo leer el registro", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    recargarFlota();
+  }, [recargarFlota]);
+
+  /**
+   * Instante al que se resuelve la identidad de la flota.
+   *
+   * En vivo es ahora. En histórico es el final del día mostrado, que es lo que
+   * hace que el recorrido del 3 de marzo salga con la máquina y el operador del
+   * 3 de marzo y no con los de hoy — la razón entera por la que las
+   * asignaciones guardan vigencia en vez de pisarse.
+   */
+  const instante = useMemo(() => {
+    if (mode === "live") return Date.now();
+    return Math.min(Date.parse(dayRange(date).toISO) - 1, Date.now());
+    // `flota` entra como dependencia para recalcular tras cada relevo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, date, flota]);
+
+  // Vuelca la identidad resuelta en el módulo que consultan `maquinaDe`, el
+  // mapa y el grabador de video, y sube la versión para forzar el redibujo.
+  useEffect(() => {
+    setRegistroVersion(setRegistroFlota(registroEn(flota, instante)));
+  }, [flota, instante]);
 
   // --- Carga ---
   const load = useCallback(
@@ -279,6 +333,18 @@ export default function Page() {
     );
   }
 
+  // El nodo cuyo formulario está abierto. Puede no estar en `nodes` si se
+  // abrió justo mientras se recargaba: se arma uno mínimo para no cerrar el
+  // formulario a mitad de escritura.
+  const nodoEnAsignacion: NodeRow | null = asignacionNodeId
+    ? nodes.find((n) => n.node_id === asignacionNodeId) ?? {
+        node_id: asignacionNodeId,
+        long_name: null,
+        short_name: null,
+        last_seen: null,
+      }
+    : null;
+
   const sinNadaQueMostrar =
     !loading &&
     !error &&
@@ -325,6 +391,10 @@ export default function Page() {
           onDeselect={deselect}
           onOpenMachine={openMachine}
           onVideo={setVideoNodeId}
+          onAsignar={setAsignacionNodeId}
+          onAdmin={() => setAdminAbierto(true)}
+          flota={flota}
+          registroVersion={registroVersion}
           loading={loading}
           onRefresh={() => load({ fit: true })}
         />
@@ -347,6 +417,25 @@ export default function Page() {
             job={videoJob}
             map={mapRef.current}
             onClose={() => setVideoNodeId(null)}
+          />
+        )}
+
+        {nodoEnAsignacion && (
+          <AsignacionModal
+            node={nodoEnAsignacion}
+            flota={flota}
+            instante={instante}
+            onClose={() => setAsignacionNodeId(null)}
+            onChanged={recargarFlota}
+          />
+        )}
+
+        {adminAbierto && (
+          <FlotaAdmin
+            flota={flota}
+            instante={instante}
+            onClose={() => setAdminAbierto(false)}
+            onChanged={recargarFlota}
           />
         )}
 
