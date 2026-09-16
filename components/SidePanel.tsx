@@ -284,6 +284,22 @@ function MachinePanel({
         <Tile label="Velocidad" value={fmtVel(item.velocidadKmh)} />
       </div>
 
+      {/* El id del nodo va primero porque es el único dato de esta ficha que no
+          cambia nunca: la máquina se renombra, el operador rota y el nodo hasta
+          se pasa a otro tractor, pero "!86591d35" siempre es ese aparato. Es lo
+          que sirve para buscarlo en la red o reportarlo a soporte. */}
+      <div className="kv">
+        <span className="text-ink-2">Nodo</span>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(item.node.node_id)}
+          title="Copiar el código del nodo"
+          className="text-right font-mono font-semibold underline decoration-dotted underline-offset-2"
+        >
+          {item.node.node_id}
+        </button>
+      </div>
+
       {/* Operador y labor salen del registro de flota, no de la máquina: se
           rotulan como tal para que nadie los lea como telemetría. */}
       <div className="kv">

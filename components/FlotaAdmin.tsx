@@ -300,7 +300,10 @@ function Operadores({
     setNuevo(true);
     setNombre(o.nombre);
     setDocumento(o.documento ?? "");
-    setTelefono(o.telefono ?? "");
+    // El teléfono guardado no se puede precargar: no sale de la base (ver
+    // `OperadorRow`). El campo arranca vacío y sólo pisa lo que hay si se
+    // escribe algo.
+    setTelefono("");
   };
 
   return (
@@ -384,6 +387,7 @@ function Operadores({
                 className="field w-full font-mono"
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
+                placeholder={editando ? "Sin cambios" : ""}
                 autoComplete="off"
               />
             </Campo>

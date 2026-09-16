@@ -28,11 +28,17 @@ export interface MaquinaRow {
   activa: boolean;
 }
 
+/**
+ * El teléfono NO está aquí a propósito. Se puede escribir pero no se lee: la
+ * app consulta con la anon key, que viaja en el bundle del navegador, así que
+ * todo lo que se seleccione es público para cualquiera que abra la app o la
+ * pestaña de red. La base lo respalda con un GRANT por columna (ver
+ * `supabase/flota.sql`), para que no dependa de que nadie lo pida por error.
+ */
 export interface OperadorRow {
   id: string;
   nombre: string;
   documento: string | null;
-  telefono: string | null;
   activo: boolean;
 }
 
@@ -120,7 +126,7 @@ function traducir(error: { code?: string; message?: string; details?: string }):
 export async function fetchFlota(): Promise<Flota> {
   const [maq, ope, asi, tur] = await Promise.all([
     supabase.from("maquinas").select("id,codigo,nombre,tipo,color,activa"),
-    supabase.from("operadores").select("id,nombre,documento,telefono,activo"),
+    supabase.from("operadores").select("id,nombre,documento,activo"),
     supabase.from("nodo_maquina").select("id,node_id,maquina_id,desde,hasta"),
     supabase
       .from("maquina_operador")
@@ -313,6 +319,7 @@ export async function actualizarMaquina(
 export interface OperadorInput {
   nombre: string;
   documento?: string;
+  /** Sólo de escritura: se guarda, nunca vuelve. Ver `OperadorRow`. */
   telefono?: string;
 }
 
@@ -326,21 +333,30 @@ export async function crearOperador(
       documento: vacioANull(input.documento),
       telefono: vacioANull(input.telefono),
     })
-    .select("id,nombre,documento,telefono,activo")
+    .select("id,nombre,documento,activo")
     .single();
   if (error) throw traducir(error);
   return data as OperadorRow;
 }
 
+/**
+ * El formulario no puede mostrar el teléfono guardado, así que llega vacío
+ * cuando no se quiso cambiar: un vacío se descarta en vez de escribir null, o
+ * editar el nombre de un operador borraría su teléfono sin que nadie lo viera.
+ * Para borrarlo a propósito está `telefono: null`.
+ */
 export async function actualizarOperador(
   id: string,
-  cambios: Partial<OperadorInput & { activo: boolean }>
+  cambios: Partial<OperadorInput & { activo: boolean; telefono: string | null }>
 ): Promise<OperadorRow> {
+  const limpios = { ...cambios };
+  if (limpios.telefono !== null && !limpios.telefono?.trim()) delete limpios.telefono;
+
   const { data, error } = await supabase
     .from("operadores")
-    .update(cambios)
+    .update(limpios)
     .eq("id", id)
-    .select("id,nombre,documento,telefono,activo")
+    .select("id,nombre,documento,activo")
     .single();
   if (error) throw traducir(error);
   return data as OperadorRow;

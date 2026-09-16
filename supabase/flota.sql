@@ -264,6 +264,35 @@ grant select, insert, update on
   public.maquinas, public.operadores, public.nodo_maquina, public.maquina_operador
   to anon, authenticated;
 
+-- El TELÉFONO del operador se escribe pero no se lee. La app consulta con la
+-- anon key, que va en el bundle del navegador: todo lo que el rol público pueda
+-- seleccionar es, en la práctica, público — basta abrir la pestaña de red. Que
+-- `lib/registro.ts` no lo pida no alcanza, porque cualquiera puede pedirlo a
+-- mano con la misma llave. El GRANT por columna es lo único que lo impide de
+-- verdad: se quita el SELECT de toda la tabla y se devuelve columna por
+-- columna, salvo `telefono`. INSERT y UPDATE siguen a nivel de tabla, así que
+-- el número se puede seguir registrando y corrigiendo desde el formulario.
+--
+-- Ojo: con esto un `select *` sobre `operadores` falla con "permission denied
+-- for column telefono". Es a propósito — obliga a nombrar las columnas — pero
+-- si algún día algo empieza a fallar ahí, ésta es la razón. `documento` (la
+-- cédula) sigue siendo legible; si también hay que taparlo, se saca de esta
+-- lista y de los `select` de `lib/registro.ts`.
+revoke select on public.operadores from anon, authenticated;
+grant select (id, nombre, documento, activo, creado_en)
+  on public.operadores to anon, authenticated;
+
+-- Y se quita lo que Supabase concede solo. El proyecto trae configurado
+-- `alter default privileges ... grant all on tables to anon, authenticated`, así
+-- que toda tabla nueva nace con DELETE y TRUNCATE para el rol público aunque
+-- nadie los pida. Con DELETE no pasa gran cosa —no hay policy de borrado y RLS
+-- lo frena igual— pero TRUNCATE NO pasa por RLS: el privilegio es lo único que
+-- lo detiene. Hoy no es alcanzable desde PostgREST, que no emite TRUNCATE, pero
+-- dejar el privilegio puesto es confiar en ese detalle para siempre.
+revoke delete, truncate on
+  public.maquinas, public.operadores, public.nodo_maquina, public.maquina_operador
+  from anon, authenticated;
+
 grant execute on function public.asignar_nodo(text, uuid, timestamptz)                 to anon, authenticated;
 grant execute on function public.desasignar_nodo(text, timestamptz)                    to anon, authenticated;
 grant execute on function public.asignar_operador(uuid, uuid, timestamptz, text)       to anon, authenticated;
