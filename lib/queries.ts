@@ -221,14 +221,21 @@ export async function fetchTracksDay(
  * Se trae la ventana completa en UNA consulta y se agrupa en el cliente, en vez
  * de hacer una consulta por día: son 14 viajes de red menos y el volumen es
  * trivial (un nodo produce ~144 filas/día y aquí sólo vienen los fixes reales).
+ *
+ * `hasta` cierra la ventana en un día distinto de hoy: así el universo abierto
+ * desde el histórico del 3 de marzo habla de las dos semanas que terminan ese
+ * día, y no de las dos que terminan hoy —que es la ventana de otra pregunta—.
  */
 export async function fetchDailySeries(
   nodeId: string,
-  dias = 14
+  dias = 14,
+  hasta?: string
 ): Promise<{ date: string; points: TrackPoint[] }[]> {
-  const hoy = new Date().toLocaleDateString("sv-SE", {
-    timeZone: "America/Bogota",
-  });
+  const hoy =
+    hasta ??
+    new Date().toLocaleDateString("sv-SE", {
+      timeZone: "America/Bogota",
+    });
   const desde = shiftDay(hoy, -(dias - 1));
   const { fromISO } = dayRange(desde);
   const { toISO } = dayRange(hoy);

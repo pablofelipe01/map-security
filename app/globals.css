@@ -260,6 +260,20 @@ body {
   width: 40px;
   height: 40px;
 }
+/* Fuera de su jornada: la máquina sigue en el mapa —existió ese día— pero
+   atenuada y sin anillo, porque el marcador ya no dice dónde estaba a esa hora,
+   sino dónde empieza o termina su recorrido. */
+.replay-marker.fuera-jornada .mk {
+  opacity: 0.38;
+  filter: grayscale(0.55) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+}
+.replay-marker.fuera-jornada .mk-ring {
+  border-color: transparent;
+  animation: none;
+}
+.replay-marker.fuera-jornada .mk-label {
+  opacity: 0.75;
+}
 .replay-marker .mk svg {
   width: 34px;
   height: 34px;

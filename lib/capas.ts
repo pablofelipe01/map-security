@@ -12,6 +12,10 @@
 export const CAPA_RASTROS = "trails";
 /** Puntos de inicio y fin de cada rastro. */
 export const CAPA_EXTREMOS = "trail-ends";
+/** Pines de cambio de máquina/operador, y su rótulo de hora. */
+export const CAPA_CAMBIOS = "cambios-registro";
+export const CAPA_CAMBIOS_HORA = "cambios-registro-hora";
+
 /** Enlaces declarados de la red mesh, y su rótulo de distancia. */
 export const CAPA_RED = "red-enlaces";
 export const CAPA_RED_ETIQ = "red-enlaces-etiq";

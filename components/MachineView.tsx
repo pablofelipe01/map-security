@@ -7,13 +7,19 @@ import { enrichTrack, computeStats, fmtDist, fmtDuration, fmtTime } from "@/lib/
 import { ESTADO_META, fmtEdad, SIN_SENAL_MIN } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
 import { puestoDe } from "@/lib/puestos";
-import { dayRange } from "@/lib/ranges";
+import { dayRange, shiftDay, todayLocal } from "@/lib/ranges";
 import BarChart from "./BarChart";
 import { MiniIcon, Tile } from "./SidePanel";
 import type { FleetItem } from "@/lib/types";
 
 interface Props {
   node: NodeRow;
+  /**
+   * Día en el que se cierra la ventana de la ficha. Sin él es hoy; viniendo del
+   * histórico es el día que se estaba mirando, para que el universo hable de
+   * esa fecha y no del presente.
+   */
+  fecha?: string;
   onBack: () => void;
 }
 
@@ -35,7 +41,13 @@ const DIAS = 14;
  * Se omiten en vez de mostrarlos en cero, que es lo que haría creer que la
  * máquina no ha consumido ni se ha reparado nunca.
  */
-export default function MachineView({ node, onBack }: Props) {
+export default function MachineView({ node, fecha, onBack }: Props) {
+  // Ventana anclada al día pedido. "Hoy" es el caso normal; cualquier otro día
+  // convierte la ficha en una foto del pasado, y el estado en vivo deja de
+  // aplicar: decir "activa" sobre una fecha de marzo sería mentir.
+  const hasta = fecha ?? todayLocal();
+  const esHoy = hasta === todayLocal();
+  const desde = shiftDay(hasta, -(DIAS - 1));
   const [dias, setDias] = useState<Dia[] | null>(null);
   const [item, setItem] = useState<FleetItem | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,11 +57,14 @@ export default function MachineView({ node, onBack }: Props) {
 
   useEffect(() => {
     let vivo = true;
+    setDias(null);
+    setItem(null);
+    setError(null);
     (async () => {
       try {
         const [series, flota] = await Promise.all([
-          fetchDailySeries(node.node_id, DIAS),
-          fetchFleet([node]),
+          fetchDailySeries(node.node_id, DIAS, hasta),
+          esHoy ? fetchFleet([node]) : Promise.resolve([]),
         ]);
 
         // Las detenciones las calcula el backend (v_node_estadias); se piden
@@ -84,7 +99,7 @@ export default function MachineView({ node, onBack }: Props) {
     return () => {
       vivo = false;
     };
-  }, [node]);
+  }, [node, hasta, esHoy]);
 
   const totalM = dias?.reduce((s, d) => s + d.stats.totalDistanceM, 0) ?? 0;
   const totalLabor = dias?.reduce((s, d) => s + d.stats.movingMinutes, 0) ?? 0;
@@ -108,6 +123,14 @@ export default function MachineView({ node, onBack }: Props) {
           <div className="font-mono text-xs tracking-[1px] text-ink-2">
             {maq.codigo} · {maq.tipo.toUpperCase()} · {node.node_id}
           </div>
+          {!esHoy && (
+            <span
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-border px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px] text-ink-2"
+              title="Ventana cerrada en la fecha que se estaba mirando en el histórico"
+            >
+              Histórico · {hasta}
+            </span>
+          )}
           {meta && item && (
             <span
               className="mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px]"
@@ -130,11 +153,26 @@ export default function MachineView({ node, onBack }: Props) {
               <br />
             </>
           )}
-          Último fix ·{" "}
-          <b className="font-mono text-ink">
-            {item?.posicion?.gps_time ? fmtTime(item.posicion.gps_time) : "—"}
-          </b>{" "}
-          <span className="text-ink-3">({fmtEdad(item?.edadFixMin ?? null)})</span>
+          {esHoy ? (
+            <>
+              Último fix ·{" "}
+              <b className="font-mono text-ink">
+                {item?.posicion?.gps_time
+                  ? fmtTime(item.posicion.gps_time)
+                  : "—"}
+              </b>{" "}
+              <span className="text-ink-3">
+                ({fmtEdad(item?.edadFixMin ?? null)})
+              </span>
+            </>
+          ) : (
+            <>
+              Ventana ·{" "}
+              <b className="font-mono text-ink">
+                {desde} → {hasta}
+              </b>
+            </>
+          )}
         </div>
       </div>
 
@@ -150,6 +188,20 @@ export default function MachineView({ node, onBack }: Props) {
         </p>
       )}
 
+      {/* La identidad (máquina, operador, labor) la resuelve el registro de
+          flota al instante que fijó la pantalla anterior, no al día de cada
+          barra: en una ventana de 14 días pudo haber relevos, y esta ficha
+          muestra uno solo. Se dice para que no se lea como "quien manejó todos
+          estos días". */}
+      {!esHoy && (
+        <p className="mb-4 rounded-card border border-border bg-surface-2 px-3 py-2.5 text-xs text-ink-2">
+          Ficha del histórico: las cifras son de los {DIAS} días que terminan el{" "}
+          <b className="font-mono">{hasta}</b>. No se muestra el estado actual de
+          la máquina —activa, detenida u offline es un dato del ahora, no de esa
+          fecha—. El operador y la labor son los vigentes en el día mostrado.
+        </p>
+      )}
+
       {error && (
         <p className="mb-4 rounded-card border border-st-alerta/40 bg-[#fdf0f0] px-3 py-2 text-xs text-st-alerta">
           {error}
@@ -158,7 +210,10 @@ export default function MachineView({ node, onBack }: Props) {
 
       {/* Totales de la ventana */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Tile label={`Recorrido ${DIAS} días`} value={fmtDist(totalM)} />
+        <Tile
+          label={esHoy ? `Recorrido ${DIAS} días` : `Recorrido a ${hasta}`}
+          value={fmtDist(totalM)}
+        />
         <Tile label="Horas en labor" value={fmtDuration(totalLabor)} />
         <Tile label="Detenciones" value={String(totalParadas)} />
         <Tile
@@ -178,7 +233,8 @@ export default function MachineView({ node, onBack }: Props) {
           <div className="space-y-5">
             <div className="card p-4">
               <h2 className="card-h2">
-                Recorrido diario · últimos {DIAS} días (km)
+                Recorrido diario · {DIAS} días{esHoy ? "" : ` hasta ${hasta}`}{" "}
+                (km)
               </h2>
               <BarChart
                 bars={dias.map((d) => ({
@@ -195,7 +251,7 @@ export default function MachineView({ node, onBack }: Props) {
                 fuente, el equivalente medible es el tiempo en labor. */}
             <div className="card p-4">
               <h2 className="card-h2">
-                Horas en labor · últimos {DIAS} días (h)
+                Horas en labor · {DIAS} días{esHoy ? "" : ` hasta ${hasta}`} (h)
               </h2>
               <BarChart
                 bars={dias.map((d) => ({
@@ -223,7 +279,14 @@ export default function MachineView({ node, onBack }: Props) {
                 </thead>
                 <tbody>
                   {[...dias].reverse().map((d) => (
-                    <tr key={d.date} className={d.puntos === 0 ? "opacity-45" : ""}>
+                    <tr
+                      key={d.date}
+                      // El día por el que se entró va marcado: es el que se
+                      // estaba mirando en el mapa, y sin marcarlo la tabla son
+                      // catorce filas iguales.
+                      className={`${d.puntos === 0 ? "opacity-45" : ""} ${
+                        d.date === hasta && !esHoy ? "bg-[#eaf2fb]" : ""
+                      }`}>
                       <Td>
                         <span className="font-mono">{d.date.slice(5)}</span>
                       </Td>

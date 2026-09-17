@@ -1,6 +1,6 @@
 "use client";
 
-import type { FleetItem, TrackStats, NodeRow } from "@/lib/types";
+import type { Estadia, FleetItem, TrackStats, NodeRow } from "@/lib/types";
 import {
   ESTADO_META,
   contarEstados,
@@ -11,7 +11,15 @@ import {
 } from "@/lib/fleet";
 import { maquinaDe, estaRegistrado, flotaConfigurada } from "@/lib/tractores";
 import { esPuesto, puestoDe } from "@/lib/puestos";
-import { turnosDelDia, type Flota } from "@/lib/registro";
+import type { PiezaRastro } from "@/lib/atribucion";
+import {
+  maquinaDeNodoEn,
+  cronologiaDelDia,
+  inicioDelDia,
+  turnosDelDia,
+  type EventoDia,
+  type Flota,
+} from "@/lib/registro";
 import { fmtDateTime } from "@/lib/geo";
 import { machineSVG } from "@/lib/icons";
 import { fmtCoords, fmtDist, fmtDuration, fmtTime } from "@/lib/geo";
@@ -22,6 +30,19 @@ export interface HistoryRow {
   node: NodeRow;
   stats: TrackStats;
   puntos: number;
+  /**
+   * Detenciones medidas del nodo ese día. Se usan para contrastar la hora
+   * REGISTRADA de un cambio contra lo que hacía el aparato a esa hora: un
+   * cambio de máquina ocurre con el nodo quieto, así que si la hora cae dentro
+   * de una detención, el registro es verosímil.
+   */
+  estadias: Estadia[];
+  /**
+   * El recorrido partido por máquina. Con más de una pieza, las cifras de
+   * arriba (que son del día entero) dejan de pertenecerle a una sola máquina y
+   * hay que desglosarlas. Ver lib/atribucion.ts.
+   */
+  piezas: PiezaRastro[];
 }
 
 interface Props {
@@ -43,6 +64,12 @@ interface Props {
   onAdmin: () => void;
   /** Registro de flota, para listar los turnos del día. */
   flota: Flota;
+  /**
+   * Instante al que está resuelta la identidad de la flota: ahora en vivo, el
+   * cierre del día mostrado en histórico. Se usa para saber qué máquina llevaba
+   * ese nodo esa fecha, que no tiene por qué ser la de hoy.
+   */
+  instante: number;
   /**
    * Cambia cada vez que se guarda un registro. No se lee: está para que React
    * vuelva a pintar cuando `maquinaDe` empiece a devolver otro nombre, porque
@@ -74,7 +101,14 @@ export default function SidePanel(p: Props) {
 
       <div className="flex-1 overflow-y-auto p-4">
         {p.mode === "history" ? (
-          <HistoryPanel {...p} />
+          // La ficha sólo reemplaza a la lista si el día mostrado tiene esa
+          // máquina: una selección heredada del modo en vivo no puede dejar el
+          // panel en blanco.
+          p.history.some((h) => h.node.node_id === p.selectedId) ? (
+            <HistoryMachinePanel {...p} />
+          ) : (
+            <HistoryPanel {...p} />
+          )
         ) : p.selectedId ? (
           <MachinePanel {...p} />
         ) : (
@@ -215,6 +249,7 @@ function MachinePanel({
   onVideo,
   onAsignar,
   flota,
+  instante,
   date,
   history,
 }: Props) {
@@ -335,7 +370,12 @@ function MachinePanel({
               {maq.operador || "asignar"}
             </button>
           </div>
-          <TurnosDelDia flota={flota} nodeId={item.node.node_id} dia={date} />
+          <TurnosDelDia
+            flota={flota}
+            nodeId={item.node.node_id}
+            dia={date}
+            instante={instante}
+          />
         </>
       )}
       {maq.labor && (
@@ -508,6 +548,157 @@ function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
   );
 }
 
+/* ================= HISTÓRICO: máquina seleccionada ================= */
+
+/**
+ * La ficha del día para la máquina elegida en el histórico.
+ *
+ * Es el equivalente de `MachinePanel` para una fecha pasada, con una diferencia
+ * de fondo: aquí no hay estado en vivo ni último fix "de hace 3 min". Todo lo
+ * que se muestra es lo que dejó ese día —recorrido, labor, detenciones y la
+ * jornada del primer al último fix—, y desde aquí se entra al universo de la
+ * máquina anclado a esa misma fecha.
+ */
+function HistoryMachinePanel({
+  history,
+  date,
+  selectedId,
+  onDeselect,
+  onOpenMachine,
+  onVideo,
+  flota,
+  instante,
+}: Props) {
+  const fila = history.find((h) => h.node.node_id === selectedId);
+  if (!fila) return null;
+
+  const maq = maquinaDe(
+    fila.node.node_id,
+    fila.node.long_name,
+    fila.node.short_name
+  );
+  const puesto = puestoDe(fila.node.node_id);
+  const st = fila.stats;
+  const vacio = fila.puntos === 0;
+
+  return (
+    <>
+      <button className="back-link" onClick={onDeselect}>
+        ‹ Histórico · {date}
+      </button>
+
+      <div className="-mx-1.5 mb-1 mt-2.5 flex w-[calc(100%+12px)] items-center gap-3 px-1.5 py-1.5">
+        <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[46px] w-[46px]" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[17px] font-extrabold leading-tight">
+            {maq.nombre}
+          </div>
+          <div className="font-mono text-[11px] tracking-[1px] text-ink-2">
+            {maq.codigo} · {puesto ? "PUESTO FIJO" : maq.tipo.toUpperCase()}
+          </div>
+        </div>
+      </div>
+
+      {/* La identidad se resuelve al día mostrado, no a hoy: se rotula para que
+          quede claro que "Juan" es quien manejaba esa fecha. */}
+      <span className="mb-3.5 mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-border px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px] text-ink-2">
+        Jornada del {date}
+      </span>
+
+      {puesto ? (
+        <p className="mb-3 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+          Puesto fijo ({puesto.nombre}): no recorre. Sus metros serían dispersión
+          del GPS, así que no se suman ni se dibuja recorrido.
+        </p>
+      ) : vacio ? (
+        <p className="mb-3 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+          Este nodo no registró ningún fix GPS el {date}. No es que no trabajara:
+          es que no reportó.
+        </p>
+      ) : (
+        <div className="my-3.5 grid grid-cols-2 gap-2.5">
+          <Tile label="Recorrido" value={fmtDist(st.totalDistanceM)} />
+          <Tile label="En labor" value={fmtDuration(st.movingMinutes)} />
+          <Tile label="Detenciones" value={String(st.stops)} />
+          <Tile label="Fixes" value={String(fila.puntos)} />
+        </div>
+      )}
+
+      <div className="kv">
+        <span className="text-ink-2">Nodo</span>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(fila.node.node_id)}
+          title="Copiar el código del nodo"
+          className="text-right font-mono font-semibold underline decoration-dotted underline-offset-2"
+        >
+          {fila.node.node_id}
+        </button>
+      </div>
+
+      {!puesto && (
+        <>
+          <div className="kv">
+            <span className="text-ink-2">Al mando ese día</span>
+            <span className="text-right font-semibold">
+              {maq.operador || "—"}
+            </span>
+          </div>
+          <CronologiaDelDia
+            flota={flota}
+            nodeId={fila.node.node_id}
+            dia={date}
+            instante={instante}
+            estadias={fila.estadias}
+          />
+          <RepartoPorMaquina piezas={fila.piezas} total={st.totalDistanceM} />
+        </>
+      )}
+      {maq.labor && (
+        <div className="kv">
+          <span className="text-ink-2">Labor</span>
+          <span className="text-right font-semibold">{maq.labor}</span>
+        </div>
+      )}
+      {!vacio && (
+        <div className="kv">
+          <span className="text-ink-2">Jornada</span>
+          <span className="text-right font-mono font-semibold">
+            {fmtTime(st.startTime)}–{fmtTime(st.endTime)}
+          </span>
+        </div>
+      )}
+      <p className="mt-1 text-[10px] leading-tight text-ink-3">
+        &quot;Jornada&quot; es del primer al último fix GPS del día, no el turno
+        del operador. La máquina y el operador son los vigentes ese día, según el
+        registro de flota.
+      </p>
+
+      <button
+        className="btn mt-3"
+        onClick={() => onOpenMachine(fila.node.node_id)}
+      >
+        Universo de la máquina →
+      </button>
+
+      {!puesto && (
+        <button
+          className="btn-ghost mt-2 disabled:opacity-40"
+          disabled={fila.puntos < 2}
+          title={
+            fila.puntos < 2
+              ? "Ese día no tiene recorrido para grabar"
+              : "Exportar el recorrido de ese día como video"
+          }
+          onClick={() => onVideo(fila.node.node_id)}
+        >
+          ⏺ Descargar video del recorrido
+        </button>
+      )}
+    </>
+  );
+}
+
 /**
  * Los relevos que tuvo hoy la máquina de ese nodo.
  *
@@ -516,26 +707,221 @@ function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
  * atribuirle mal el trabajo del otro. Con un solo turno no aporta nada y no se
  * dibuja.
  */
-function TurnosDelDia({
+/**
+ * Qué pasó y a qué hora: los cambios de máquina y de operador del nodo ese día.
+ *
+ * Existe porque el histórico resuelve la identidad a UN instante —el final del
+ * día—, y con eso un nodo que se pasó de tractor a media jornada aparece como si
+ * hubiera sido el segundo tractor todo el día. El recorrido de la mañana queda
+ * atribuido a la máquina y al operador equivocados.
+ *
+ * Cuando no hubo ningún cambio cae al listado de turnos de siempre, que es más
+ * corto y dice lo mismo.
+ */
+function CronologiaDelDia({
   flota,
   nodeId,
   dia,
+  instante,
+  estadias,
 }: {
   flota: Flota;
   nodeId: string;
   dia: string;
+  instante: number;
+  estadias: Estadia[];
 }) {
-  const asignacion = flota.asignaciones.find(
-    (a) => a.node_id === nodeId && a.hasta == null
-  );
-  if (!asignacion) return null;
+  const eventos = cronologiaDelDia(flota, nodeId, dia);
+  if (eventos.length === 0) {
+    return (
+      <TurnosDelDia
+        flota={flota}
+        nodeId={nodeId}
+        dia={dia}
+        instante={instante}
+        etiqueta="Turnos del día"
+        siempre
+      />
+    );
+  }
 
-  const turnos = turnosDelDia(flota, asignacion.maquina_id, dia);
-  if (turnos.length < 2) return null;
+  const inicio = inicioDelDia(flota, nodeId, dia);
+
+  return (
+    <div className="mt-2.5">
+      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[1.2px] text-ink-3">
+        Cronología del día
+      </div>
+
+      <div className="border-l-2 border-border pl-2.5 text-[11px] leading-snug">
+        <div className="pb-2">
+          <span className="font-mono text-[10px] text-ink-3">arranca</span>{" "}
+          <span className="font-semibold">
+            {inicio.maquina?.codigo ?? "sin máquina"}
+          </span>
+          {inicio.operador && (
+            <span className="text-ink-2"> · {inicio.operador.nombre}</span>
+          )}
+        </div>
+
+        {eventos.map((ev, i) => {
+          const parada = detencionEn(estadias, ev.t);
+          return (
+            <div key={`${ev.t}-${i}`} className="pb-2">
+              <span className="font-mono text-[10px] font-semibold text-ink">
+                {fmtTime(ev.t)}
+              </span>{" "}
+              <span>{describir(ev)}</span>
+              <span
+                className={`ml-1 block text-[10px] ${
+                  parada ? "text-ink-3" : "text-st-detenida"
+                }`}
+              >
+                {parada
+                  ? `coincide con una detención de ${fmtDuration(parada.minutos)}`
+                  : "el nodo no estaba detenido a esa hora"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* El matiz que hace utilizable todo lo de arriba: estas horas son las que
+          alguien digitó, no las que midió el aparato. La línea de contraste de
+          cada evento es lo único que las corrobora. */}
+      <p className="mt-1 text-[10px] leading-tight text-ink-3">
+        Las horas son las del registro, no las del movimiento físico: si el
+        relevo se diligenció tarde, esta es la hora en que se diligenció. Que
+        coincida con una detención del nodo es lo que la respalda.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Cuánto recorrió cada máquina, cuando el nodo cambió de vehículo ese día.
+ *
+ * Sin esto, las cifras de arriba —que son del día completo— se leen como si
+ * fueran de una sola máquina: la que quedó montada al cierre. Un tractor que
+ * trabajó toda la mañana desaparecería del reporte.
+ *
+ * Con una sola máquina no se dibuja: no hay nada que repartir.
+ */
+function RepartoPorMaquina({
+  piezas,
+  total,
+}: {
+  piezas: PiezaRastro[];
+  total: number;
+}) {
+  if (piezas.length < 2) return null;
+
+  return (
+    <div className="mt-2.5">
+      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[1.2px] text-ink-3">
+        Recorrido por máquina
+      </div>
+      {piezas.map((p, i) => (
+        <div key={i} className="kv">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: p.color }}
+            />
+            <span className="truncate text-ink-2">
+              {p.codigo}
+              {p.operador && (
+                <span className="text-ink-3"> · {p.operador}</span>
+              )}
+            </span>
+          </span>
+          <span className="text-right font-mono font-semibold">
+            {fmtDist(p.metros)}
+          </span>
+        </div>
+      ))}
+      {/* Los pedazos no suman exactamente el total del día: el tramo que cruza
+          el cambio se le cuenta a la máquina nueva, y entre dos fixes no hay
+          forma de repartirlo mejor. Se dice, en vez de maquillar la cifra. */}
+      <p className="mt-1 text-[10px] leading-tight text-ink-3">
+        Suma {fmtDist(piezas.reduce((a, p) => a + p.metros, 0))} contra{" "}
+        {fmtDist(total)} del día: el tramo entre el último fix de una máquina y
+        el primero de la otra se le atribuye a la nueva.
+      </p>
+    </div>
+  );
+}
+
+/** La detención que contiene ese instante, si el nodo estaba quieto ahí. */
+function detencionEn(estadias: Estadia[], iso: string): Estadia | null {
+  const t = Date.parse(iso);
+  return (
+    estadias.find((e) => Date.parse(e.desde) <= t && t <= Date.parse(e.hasta)) ??
+    null
+  );
+}
+
+/** El evento en una línea, en los términos en que se habla en campo. */
+function describir(ev: EventoDia): React.ReactNode {
+  const maq = ev.maquina?.codigo ?? "—";
+  const previa = ev.maquinaPrevia?.codigo ?? "—";
+
+  if (ev.tipo === "cambio_maquina") {
+    return (
+      <>
+        pasa de <b>{previa}</b> a <b>{maq}</b>
+      </>
+    );
+  }
+  if (ev.tipo === "monta") {
+    return (
+      <>
+        se monta en <b>{maq}</b>
+      </>
+    );
+  }
+  if (ev.tipo === "desmonta") {
+    return (
+      <>
+        se desmonta de <b>{previa}</b>
+      </>
+    );
+  }
+  return (
+    <>
+      releva {ev.operadorPrevio ? `a ${ev.operadorPrevio.nombre} ` : ""}
+      <b>{ev.operador?.nombre ?? "—"}</b>
+    </>
+  );
+}
+
+function TurnosDelDia({
+  flota,
+  nodeId,
+  dia,
+  instante,
+  etiqueta = "Turnos de hoy",
+  siempre = false,
+}: {
+  flota: Flota;
+  nodeId: string;
+  dia: string;
+  instante: number;
+  etiqueta?: string;
+  /** true = listar también el turno único (en histórico sí aporta: dice quién). */
+  siempre?: boolean;
+}) {
+  // La máquina se resuelve al instante mostrado y no por la asignación abierta:
+  // el nodo pudo haberse pasado de tractor después de la fecha que se mira.
+  const maquina = maquinaDeNodoEn(flota, nodeId, instante);
+  if (!maquina) return null;
+
+  const turnos = turnosDelDia(flota, maquina.id, dia);
+  if (turnos.length < (siempre ? 1 : 2)) return null;
 
   return (
     <div className="kv items-start">
-      <span className="text-ink-2">Turnos de hoy</span>
+      <span className="text-ink-2">{etiqueta}</span>
       <span className="text-right">
         {turnos.map((t) => (
           <span key={t.id} className="block">

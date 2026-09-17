@@ -422,3 +422,132 @@ function vacioANull(v: string | undefined): string | null {
   const t = (v ?? "").trim();
   return t === "" ? null : t;
 }
+
+/* ========================= cronología del día ========================= */
+
+/**
+ * Qué pasó y cuándo: los cambios de máquina y de operador de un nodo en un día.
+ *
+ * Existe porque el histórico resuelve la identidad a UN instante —el final del
+ * día— y eso basta mientras nada cambie. Si a media jornada el nodo se pasa de
+ * tractor, o entra otro operador, ese resumen atribuye el día entero a la última
+ * combinación y borra la primera mitad del trabajo de quien la hizo.
+ *
+ * ⚠️ La hora que se devuelve es la que quedó REGISTRADA, no la medida. Nace del
+ * `desde` que puso quien diligenció el relevo: si el cambio se hizo a las 11:00
+ * y se registró a las 14:00, aquí dice 14:00. La app lo rotula como registrado,
+ * y el panel lo contrasta contra las detenciones reales del nodo, que es lo
+ * único que puede corroborar que a esa hora el aparato estaba efectivamente
+ * quieto en un sitio — ver `coincideConDetencion`.
+ */
+export type TipoEvento = "monta" | "cambio_maquina" | "desmonta" | "relevo";
+
+export interface EventoDia {
+  /** Instante registrado del cambio (ISO). */
+  t: string;
+  tipo: TipoEvento;
+  /** La máquina a partir de ese momento (null si el nodo quedó desmontado). */
+  maquina: MaquinaRow | null;
+  /** La de antes, cuando el evento es un cambio. */
+  maquinaPrevia?: MaquinaRow | null;
+  operador?: OperadorRow | null;
+  operadorPrevio?: OperadorRow | null;
+}
+
+/** Dos instantes que caen dentro del mismo minuto se consideran el mismo acto. */
+const MISMO_ACTO_MS = 60_000;
+
+export function cronologiaDelDia(
+  flota: Flota,
+  nodeId: string,
+  dia: string
+): EventoDia[] {
+  const { fromISO, toISO } = dayRange(dia);
+  const ini = Date.parse(fromISO);
+  const fin = Date.parse(toISO);
+
+  const maquinaDe_ = (id: string) =>
+    flota.maquinas.find((m) => m.id === id) ?? null;
+
+  // Tramos del nodo que tocan el día, en orden.
+  const tramos = flota.asignaciones
+    .filter((a) => {
+      if (a.node_id !== nodeId) return false;
+      const d = Date.parse(a.desde);
+      const h = a.hasta ? Date.parse(a.hasta) : Infinity;
+      return d < fin && h > ini;
+    })
+    .sort((a, b) => Date.parse(a.desde) - Date.parse(b.desde));
+
+  const eventos: EventoDia[] = [];
+
+  tramos.forEach((a, i) => {
+    const maquina = maquinaDe_(a.maquina_id);
+    const d = Date.parse(a.desde);
+    const previo = tramos[i - 1];
+
+    // El nodo se montó en esta máquina durante el día.
+    if (d >= ini && d < fin) {
+      const encadena =
+        previo?.hasta != null &&
+        Math.abs(Date.parse(previo.hasta) - d) < MISMO_ACTO_MS;
+      eventos.push({
+        t: a.desde,
+        tipo: encadena ? "cambio_maquina" : "monta",
+        maquina,
+        maquinaPrevia: encadena ? maquinaDe_(previo.maquina_id) : null,
+      });
+    }
+
+    // Se desmontó y no pasó a otra: el nodo quedó sin máquina.
+    if (a.hasta) {
+      const h = Date.parse(a.hasta);
+      const siguiente = tramos[i + 1];
+      const encadena =
+        siguiente != null &&
+        Math.abs(Date.parse(siguiente.desde) - h) < MISMO_ACTO_MS;
+      if (h > ini && h <= fin && !encadena) {
+        eventos.push({
+          t: a.hasta,
+          tipo: "desmonta",
+          maquina: null,
+          maquinaPrevia: maquina,
+        });
+      }
+    }
+
+    // Relevos de operador que ocurren DENTRO de este tramo. Se acotan al tramo
+    // a propósito: los turnos son de la máquina, y mientras el nodo no estuvo
+    // montado en ella, lo que pasara con esa máquina no es historia del nodo.
+    if (!maquina) return;
+    const hastaTramo = a.hasta ? Date.parse(a.hasta) : Infinity;
+    const turnos = turnosDelDia(flota, maquina.id, dia);
+
+    turnos.forEach((turno, j) => {
+      const td = Date.parse(turno.desde);
+      if (td < ini || td >= fin) return; // el turno venía de otro día
+      if (td < d || td >= hastaTramo) return; // fuera de este tramo
+      eventos.push({
+        t: turno.desde,
+        tipo: "relevo",
+        maquina,
+        operador: turno.operador,
+        operadorPrevio: turnos[j - 1]?.operador ?? null,
+      });
+    });
+  });
+
+  return eventos.sort((x, y) => Date.parse(x.t) - Date.parse(y.t));
+}
+
+/**
+ * Con qué máquina y operador arrancó el día, para dar el punto de partida
+ * contra el que se leen los cambios.
+ */
+export function inicioDelDia(
+  flota: Flota,
+  nodeId: string,
+  dia: string
+): { maquina: MaquinaRow | null; operador: OperadorRow | null } {
+  return identidadDeNodoEn(flota, nodeId, Date.parse(dayRange(dia).fromISO));
+}

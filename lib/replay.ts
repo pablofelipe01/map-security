@@ -51,9 +51,16 @@ function minutoDe(p: Timed): number {
 /**
  * Posición de una máquina en un minuto del día.
  *
- * Devuelve null si a esa hora la máquina aún no había reportado: el marcador no
- * debe existir antes del primer fix, porque su ausencia también es un dato
- * ("arrancó a las 8:40").
+ * Devuelve null sólo si ese día no hubo un solo fix: sin ninguna coordenada de
+ * la fecha no hay nada honesto que dibujar.
+ *
+ * Fuera de la jornada —antes del primer fix o después del último— la máquina
+ * sigue en el mapa, parada en el extremo que corresponde y marcada con
+ * `fuera: true`. Ahí no se está diciendo dónde estaba a esa hora, que es algo
+ * que nadie sabe: se está diciendo "esta máquina existe ese día, y su jornada
+ * empieza acá". El marcador se dibuja atenuado justamente para que la
+ * diferencia se vea, en vez de desaparecer y dejar el mapa hablando de una
+ * flota más chica de la que hubo.
  */
 export function positionAt(
   points: TrackPoint[],
@@ -76,19 +83,28 @@ export function positionAt(
     }
   }
 
-  if (!prev) return null; // aún no arranca la jornada
-
-  const quieto = (p: Timed, ref: Timed | null): Omit<ReplayPos, "nodeId"> => ({
+  const quieto = (
+    p: Timed,
+    ref: Timed | null,
+    fuera = false
+  ): Omit<ReplayPos, "nodeId"> => ({
     lat: p.lat,
     lon: p.lon,
     rumbo: ref ? bearingDeg(ref, p) : null,
     moviendo: false,
+    fuera,
   });
+
+  // Todavía no arranca la jornada: espera en su primer fix, atenuada.
+  if (!prev) {
+    const primero = points[0] as Timed;
+    return quieto(primero, null, true);
+  }
 
   const anterior = iPrev > 0 ? (points[iPrev - 1] as Timed) : null;
 
-  // Ya terminó la jornada: se queda en el último fix, no desaparece.
-  if (!next) return quieto(prev, anterior);
+  // Ya terminó la jornada: se queda en el último fix, atenuada.
+  if (!next) return quieto(prev, anterior, true);
 
   const a = minutoDe(prev);
   const b = minutoDe(next);
@@ -111,7 +127,13 @@ export function positionAt(
   const tramo = tramos?.[iPrev];
   if (tramo?.porVia && tramo.largoM > 0) {
     const pos = posicionEnTramo(tramo, f);
-    return { lat: pos.lat, lon: pos.lon, rumbo: pos.rumbo, moviendo };
+    return {
+      lat: pos.lat,
+      lon: pos.lon,
+      rumbo: pos.rumbo,
+      moviendo,
+      fuera: false,
+    };
   }
 
   return {
@@ -119,6 +141,7 @@ export function positionAt(
     lon: prev.lon + (next.lon - prev.lon) * f,
     rumbo: bearingDeg(prev, next),
     moviendo,
+    fuera: false,
   };
 }
 

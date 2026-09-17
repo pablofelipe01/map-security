@@ -17,7 +17,7 @@ import {
 } from "maplibre-gl";
 import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
-import { maquinaDe } from "@/lib/tractores";
+import { maquinaDe, type TipoMaquina } from "@/lib/tractores";
 import { puestoDe } from "@/lib/puestos";
 import { antenaHTML, markerHTML } from "@/lib/icons";
 import {
@@ -32,6 +32,8 @@ import {
   CAPA_RASTROS,
   CAPA_RED,
   CAPA_RED_ETIQ,
+  CAPA_CAMBIOS,
+  CAPA_CAMBIOS_HORA,
 } from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
 
@@ -47,8 +49,26 @@ export interface Trail {
    * siendo la verdad medida y es lo que marca los extremos y el encuadre.
    */
   ruta?: [number, number][] | null;
+  /**
+   * El rastro partido por máquina, cuando el nodo cambió de vehículo ese día.
+   * Cada pieza se dibuja con el color de SU máquina; sin esto el día entero
+   * saldría del color de la máquina que quedó al cierre. Ver lib/atribucion.ts.
+   */
+  piezas?: { color: string; latlngs: [number, number][]; ruta: [number, number][] | null }[];
   desde: string | null;
   hasta: string | null;
+}
+
+/**
+ * Un cambio de máquina u operador, ubicado donde estaba el nodo cuando se
+ * registró. Ver `cronologiaDelDia` en lib/registro.ts.
+ */
+export interface CambioMapa {
+  lat: number;
+  lon: number;
+  /** Hora local, ya formateada: es lo que se dibuja junto al pin. */
+  hora: string;
+  tipo: "monta" | "cambio_maquina" | "desmonta" | "relevo";
 }
 
 /** Posición de una máquina en un instante del replay. */
@@ -58,6 +78,21 @@ export interface ReplayPos {
   lon: number;
   rumbo: number | null;
   moviendo: boolean;
+  /**
+   * true = a esa hora la máquina estaba fuera de su jornada: el marcador está
+   * esperando en su primer fix o quedó en el último. Se dibuja atenuado, porque
+   * no afirma dónde estaba en ese minuto (nadie lo sabe), sólo que la máquina
+   * trabajó ese día.
+   */
+  fuera?: boolean;
+  /**
+   * Identidad vigente en ESE minuto, no al cierre del día. Es lo que hace que
+   * el ícono del replay cambie de máquina en el momento en que el nodo se pasó
+   * de vehículo, en vez de recorrer toda la jornada disfrazado del último.
+   */
+  tipo?: TipoMaquina;
+  color?: string;
+  codigo?: string;
 }
 
 interface Props {
@@ -67,6 +102,8 @@ interface Props {
   sitios: SitioRed[];
   trails: Trail[];
   replay: ReplayPos[] | null;
+  /** Dónde se registraron los cambios de máquina/operador del nodo elegido. */
+  cambios: CambioMapa[];
   selectedId: string | null;
   onSelect: (nodeId: string) => void;
   onOpenMachine: (nodeId: string) => void;
@@ -95,6 +132,7 @@ setWorkerUrl("/maplibre-gl-worker.mjs");
 const SRC_TRAILS = CAPA_RASTROS;
 const SRC_ENDS = CAPA_EXTREMOS;
 const SRC_VIAS = "vias";
+const SRC_CAMBIOS = CAPA_CAMBIOS;
 
 /**
  * Vías de Guaicaramo. Se declaran dentro del estilo inicial (y no en el `load`)
@@ -228,6 +266,7 @@ export default function MapGL({
   sitios,
   trails,
   replay,
+  cambios,
   selectedId,
   onSelect,
   onOpenMachine,
@@ -500,6 +539,50 @@ export default function MapGL({
         },
       });
 
+      // Cambios de máquina/operador del nodo seleccionado. Van sobre el rastro
+      // —se añaden después— porque son la anotación que lo explica: el rastro
+      // dice por dónde anduvo, el pin dice en qué punto dejó de ser esa máquina.
+      map.addSource(SRC_CAMBIOS, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: SRC_CAMBIOS,
+        type: "circle",
+        source: SRC_CAMBIOS,
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 3,
+          // El relevo de operador y el cambio de máquina se distinguen por
+          // color: son dos hechos distintos y a veces ocurren en el mismo sitio.
+          "circle-stroke-color": [
+            "match",
+            ["get", "tipo"],
+            "relevo",
+            "#7b4fd0",
+            "#eb6834",
+          ],
+        },
+      });
+      map.addLayer({
+        id: CAPA_CAMBIOS_HORA,
+        type: "symbol",
+        source: SRC_CAMBIOS,
+        layout: {
+          "text-field": ["get", "hora"],
+          "text-font": FUENTE,
+          "text-size": 11,
+          "text-offset": [0, -1.3],
+          "text-allow-overlap": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#0b1120",
+          "text-halo-width": 1.8,
+        },
+      });
+
       // Clic en un rastro = seleccionar esa máquina.
       map.on("click", SRC_TRAILS, (e: MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.nodeId;
@@ -611,17 +694,27 @@ export default function MapGL({
 
       src.setData({
         type: "FeatureCollection",
-        features: trails
-          .filter((t) => t.latlngs.length >= 2)
-          .map((t) => ({
-            type: "Feature" as const,
-            properties: { nodeId: t.nodeId, color: t.color },
-            geometry: {
-              type: "LineString" as const,
-              // GeoJSON va en [lon, lat]; los datos vienen en [lat, lon].
-              coordinates: (t.ruta ?? t.latlngs).map(([la, lo]) => [lo, la]),
-            },
-          })),
+        // Una feature por pieza cuando el nodo cambió de máquina, y una sola
+        // para el día cuando no. Todas llevan el mismo `nodeId`, así que el
+        // clic y el resalte del seleccionado siguen funcionando igual.
+        features: trails.flatMap((t) => {
+          const piezas =
+            t.piezas && t.piezas.length > 1
+              ? t.piezas
+              : [{ color: t.color, latlngs: t.latlngs, ruta: t.ruta ?? null }];
+
+          return piezas
+            .filter((p) => (p.ruta ?? p.latlngs).length >= 2)
+            .map((p) => ({
+              type: "Feature" as const,
+              properties: { nodeId: t.nodeId, color: p.color },
+              geometry: {
+                type: "LineString" as const,
+                // GeoJSON va en [lon, lat]; los datos vienen en [lat, lon].
+                coordinates: (p.ruta ?? p.latlngs).map(([la, lo]) => [lo, la]),
+              },
+            }));
+        }),
       });
 
       // Los extremos sólo aportan en histórico: "¿a qué hora arrancó y paró?".
@@ -644,6 +737,24 @@ export default function MapGL({
 
     whenReady(pintar);
   }, [trails, mode, whenReady]);
+
+  // --- Pines de cambio de máquina / operador ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const pintar = () => {
+      const src = map.getSource(SRC_CAMBIOS) as GeoJSONSource | undefined;
+      src?.setData({
+        type: "FeatureCollection",
+        features: cambios.map((c) => ({
+          type: "Feature" as const,
+          properties: { hora: c.hora, tipo: c.tipo },
+          geometry: { type: "Point" as const, coordinates: [c.lon, c.lat] },
+        })),
+      });
+    };
+    whenReady(pintar);
+  }, [cambios, whenReady]);
 
   // --- Resalte del seleccionado ---
   useEffect(() => {
@@ -745,13 +856,15 @@ export default function MapGL({
     const vistos = new Set<string>();
     for (const pos of replay) {
       vistos.add(pos.nodeId);
+      // La identidad viene resuelta AL MINUTO que se está reproduciendo; sólo
+      // si no llega se cae al registro vigente, que es el del cierre del día.
       const maq = maquinaDe(pos.nodeId);
       const color =
-        trails.find((t) => t.nodeId === pos.nodeId)?.color ?? maq.color;
+        pos.color ?? trails.find((t) => t.nodeId === pos.nodeId)?.color ?? maq.color;
       const html = markerHTML({
-        tipo: maq.tipo,
+        tipo: pos.tipo ?? maq.tipo,
         color,
-        codigo: maq.codigo,
+        codigo: pos.codigo ?? maq.codigo,
         estado: pos.moviendo ? "activa" : "detenida",
         rumbo: pos.rumbo,
       });
@@ -760,6 +873,10 @@ export default function MapGL({
       if (!mk) {
         const el = document.createElement("div");
         el.className = "machine-marker replay-marker";
+        // El marcador del replay se toca igual que el de en vivo: clic
+        // selecciona y doble clic abre el universo. Sin esto, en histórico la
+        // máquina se ve en el mapa pero sólo se puede elegir desde la lista.
+        attachClicks(el, pos.nodeId, cbRef);
         mk = new Marker({ element: el, anchor: "center" })
           .setLngLat([pos.lon, pos.lat])
           .addTo(map);
@@ -767,7 +884,19 @@ export default function MapGL({
       } else {
         mk.setLngLat([pos.lon, pos.lat]);
       }
-      mk.getElement().innerHTML = html;
+      const elMk = mk.getElement();
+      elMk.innerHTML = html;
+      // Fuera de jornada el marcador se atenúa: sigue ubicando a la máquina en
+      // el mapa sin afirmar que a esa hora estaba ahí.
+      elMk.classList.toggle("fuera-jornada", !!pos.fuera);
+      elMk.title = `${maq.nombre} · ${maq.codigo}
+${
+        pos.fuera
+          ? "Fuera de su jornada a esta hora"
+          : pos.moviendo
+            ? "En movimiento"
+            : "Detenida"
+      }`;
     }
 
     replayRef.current.forEach((mk, id) => {

@@ -9,7 +9,7 @@ import MachineView from "@/components/MachineView";
 import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import AsignacionModal from "@/components/AsignacionModal";
 import FlotaAdmin from "@/components/FlotaAdmin";
-import type { Trail, ReplayPos } from "@/components/MapGL";
+import type { Trail, ReplayPos, CambioMapa } from "@/components/MapGL";
 import {
   fetchNodes,
   fetchFleet,
@@ -19,10 +19,11 @@ import {
 } from "@/lib/queries";
 import type { SitioRed } from "@/lib/red";
 import { estaDadoDeBaja } from "@/lib/bajas";
-import { computeStats, enrichTrack } from "@/lib/geo";
+import { computeStats, enrichTrack, fmtTime } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
+import { partirPorMaquina, type PiezaRastro } from "@/lib/atribucion";
 import { useRutasPorVia } from "@/lib/useRutas";
-import { positionAt, ventanaConDatos } from "@/lib/replay";
+import { minuteOfDay, positionAt, ventanaConDatos } from "@/lib/replay";
 import { dayRange, todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
 import { maquinaDe, setRegistroFlota } from "@/lib/tractores";
@@ -30,6 +31,8 @@ import { esPuesto, puestoDe } from "@/lib/puestos";
 import {
   fetchFlota,
   registroEn,
+  cronologiaDelDia,
+  identidadDeNodoEn,
   FLOTA_VACIA,
   type Flota,
 } from "@/lib/registro";
@@ -96,12 +99,18 @@ export default function Page() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(15);
 
-  // Ruta: #/m/<node_id> abre el universo de esa máquina.
+  // Ruta: #/m/<node_id> abre el universo de esa máquina, y
+  // #/m/<node_id>/<YYYY-MM-DD> lo abre anclado a ese día — que es como se entra
+  // desde el histórico, para que la ficha hable de la fecha que se estaba
+  // mirando y no de hoy. La fecha va en la URL para que el enlace se pueda
+  // compartir y siga significando lo mismo.
   const [hashNode, setHashNode] = useState<string | null>(null);
+  const [hashFecha, setHashFecha] = useState<string | null>(null);
   useEffect(() => {
     const read = () => {
-      const m = location.hash.match(/^#\/m\/(.+)$/);
+      const m = location.hash.match(/^#\/m\/([^/]+)(?:\/(\d{4}-\d{2}-\d{2}))?$/);
       setHashNode(m ? decodeURIComponent(m[1]) : null);
+      setHashFecha(m?.[2] ?? null);
     };
     read();
     window.addEventListener("hashchange", read);
@@ -152,11 +161,15 @@ export default function Page() {
    * asignaciones guardan vigencia en vez de pisarse.
    */
   const instante = useMemo(() => {
-    if (mode === "live") return Date.now();
-    return Math.min(Date.parse(dayRange(date).toISO) - 1, Date.now());
+    // Con un universo abierto manda la fecha de su URL: entrando por enlace
+    // directo el modo todavía es "live", y sin esto la ficha del 3 de marzo
+    // saldría con el operador de hoy.
+    const dia = hashFecha ?? (mode === "live" ? null : date);
+    if (!dia) return Date.now();
+    return Math.min(Date.parse(dayRange(dia).toISO) - 1, Date.now());
     // `flota` entra como dependencia para recalcular tras cada relevo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, date, flota]);
+  }, [mode, date, hashFecha, flota]);
 
   // Vuelca la identidad resuelta en el módulo que consultan `maquinaDe`, el
   // mapa y el grabador de video, y sube la versión para forzar el redibujo.
@@ -227,16 +240,6 @@ export default function Page() {
   }, [mode, hashNode, videoNodeId]);
 
   // --- Derivados ---
-  const rows = useMemo<HistoryRow[]>(
-    () =>
-      tracks.map(({ node, points }) => ({
-        node,
-        stats: computeStats(enrichTrack(points), estadias[node.node_id] ?? []),
-        puntos: points.length,
-      })),
-    [tracks, estadias]
-  );
-
   const trailsCrudos = useMemo<Trail[]>(
     () =>
       tracks
@@ -263,13 +266,47 @@ export default function Page() {
    */
   const rutas = useRutasPorVia(trailsCrudos);
 
+  /**
+   * El recorrido de cada nodo partido por máquina. Es lo que hace que el rastro
+   * cambie de color en el punto donde el nodo se pasó de vehículo, en vez de
+   * salir todo del color de la máquina que quedó al cierre del día.
+   */
+  const piezas = useMemo<Map<string, PiezaRastro[]>>(() => {
+    const out = new Map<string, PiezaRastro[]>();
+    for (const t of tracks) {
+      if (t.points.length === 0) continue;
+      out.set(
+        t.node.node_id,
+        partirPorMaquina(flota, t.node.node_id, t.points, rutas?.get(t.node.node_id))
+      );
+    }
+    return out;
+  }, [tracks, flota, rutas]);
+
   const trails = useMemo<Trail[]>(
     () =>
       trailsCrudos.map((t) => {
         const tramos = rutas?.get(t.nodeId);
-        return tramos ? { ...t, ruta: unirTramos(tramos) } : t;
+        const p = piezas.get(t.nodeId);
+        return {
+          ...t,
+          ...(tramos ? { ruta: unirTramos(tramos) } : {}),
+          ...(p && p.length > 1 ? { piezas: p } : {}),
+        };
       }),
-    [trailsCrudos, rutas]
+    [trailsCrudos, rutas, piezas]
+  );
+
+  const rows = useMemo<HistoryRow[]>(
+    () =>
+      tracks.map(({ node, points }) => ({
+        node,
+        stats: computeStats(enrichTrack(points), estadias[node.node_id] ?? []),
+        puntos: points.length,
+        estadias: estadias[node.node_id] ?? [],
+        piezas: piezas.get(node.node_id) ?? [],
+      })),
+    [tracks, estadias, piezas]
   );
 
   const ventana = useMemo(
@@ -302,10 +339,59 @@ export default function Page() {
         continue;
       }
       const pos = positionAt(t.points, minute, rutas?.get(t.node.node_id));
-      if (pos) out.push({ nodeId: t.node.node_id, ...pos });
+      if (!pos) continue;
+      // La identidad se resuelve al minuto que se está reproduciendo: si a las
+      // 11:40 el nodo se pasó de tractor, el ícono cambia ahí y no al final.
+      const { maquina } = identidadDeNodoEn(
+        flota,
+        t.node.node_id,
+        Date.parse(dayRange(shownDate).fromISO) + minute * 60_000
+      );
+      out.push({
+        nodeId: t.node.node_id,
+        ...pos,
+        ...(maquina
+          ? { tipo: maquina.tipo, color: maquina.color, codigo: maquina.codigo }
+          : {}),
+      });
     }
     return out;
-  }, [mode, tracks, minute, rutas]);
+  }, [mode, tracks, minute, rutas, flota, shownDate]);
+
+  /**
+   * Dónde estaba el nodo cuando se registró cada cambio de máquina u operador.
+   *
+   * Sólo del nodo seleccionado y sólo en histórico: son los puntos que contestan
+   * "¿dónde se hizo el cambio?". La posición sale del mismo `positionAt` que
+   * mueve el marcador del replay, así que el pin cae exactamente sobre el rastro
+   * dibujado y no a un lado.
+   */
+  const cambios = useMemo<CambioMapa[]>(() => {
+    if (mode !== "history" || !selectedId) return [];
+    const pista = tracks.find((x) => x.node.node_id === selectedId);
+    if (!pista) return [];
+
+    const out: CambioMapa[] = [];
+    for (const ev of cronologiaDelDia(flota, selectedId, shownDate)) {
+      const pos = positionAt(
+        pista.points,
+        minuteOfDay(ev.t),
+        rutas?.get(selectedId)
+      );
+      // `fuera` = la hora registrada cae antes del primer fix o después del
+      // último. Ahí `positionAt` devuelve el extremo de la jornada, que NO es
+      // dónde estaba el nodo a esa hora: sería inventar un sitio, así que no se
+      // pone pin. La cronología del panel lo sigue listando.
+      if (!pos || pos.fuera) continue;
+      out.push({
+        lat: pos.lat,
+        lon: pos.lon,
+        hora: fmtTime(ev.t),
+        tipo: ev.tipo,
+      });
+    }
+    return out;
+  }, [mode, selectedId, tracks, flota, shownDate, rutas]);
 
   /**
    * Lo que hay que pasarle al grabador para el nodo elegido. Se arma del mismo
@@ -347,9 +433,15 @@ export default function Page() {
     return t[t.length - 1] ?? null;
   }, [fleet]);
 
-  const openMachine = useCallback((nodeId: string) => {
-    location.hash = `#/m/${encodeURIComponent(nodeId)}`;
-  }, []);
+  // Desde el histórico el universo se abre anclado al día mostrado; en vivo,
+  // sin fecha, que equivale a hoy.
+  const openMachine = useCallback(
+    (nodeId: string) => {
+      const base = `#/m/${encodeURIComponent(nodeId)}`;
+      location.hash = mode === "history" ? `${base}/${date}` : base;
+    },
+    [mode, date]
+  );
 
   const selectMachine = useCallback((nodeId: string) => {
     setSelectedId(nodeId);
@@ -379,6 +471,7 @@ export default function Page() {
       <main className="h-screen w-screen overflow-hidden">
         <MachineView
           node={nodoAbierto}
+          fecha={hashFecha ?? undefined}
           onBack={() => {
             location.hash = "";
           }}
@@ -425,6 +518,7 @@ export default function Page() {
           sitios={sitios}
           trails={trails}
           replay={replay}
+          cambios={cambios}
           selectedId={selectedId}
           onSelect={selectMachine}
           onOpenMachine={openMachine}
@@ -449,6 +543,7 @@ export default function Page() {
           onAsignar={setAsignacionNodeId}
           onAdmin={() => setAdminAbierto(true)}
           flota={flota}
+          instante={instante}
           registroVersion={registroVersion}
           loading={loading}
           onRefresh={() => load({ fit: true })}

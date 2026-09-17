@@ -330,9 +330,18 @@ código, a propósito.
   por estado y lista ordenada por criticidad. Clic = seleccionar y encuadrar,
   doble clic = abrir el universo de la máquina.
 - **HISTÓRICO**: selector de día, recorridos con marcas de inicio/fin y barra de
-  replay (play/pausa, ×5–×60, slider acotado a las horas con datos).
-- **Universo de máquina** (`#/m/<node_id>`): totales de 14 días, gráficas de
-  km/día y horas en labor/día, y tabla de jornadas con primer y último fix.
+  replay (play/pausa, ×5–×60, slider acotado a las horas con datos). Toda
+  máquina con fixes ese día tiene marcador durante todo el replay: atenuado y
+  sin anillo mientras está fuera de su jornada —esperando en su primer fix o
+  detenido en el último—, para que la flota no se encoja según la hora. Al elegir
+  una máquina —en la lista o en el mapa— el panel muestra su ficha de ese día
+  (recorrido, labor, detenciones, jornada y quién la manejó) y desde ahí se
+  entra a su universo. Doble clic en el marcador del replay hace lo mismo.
+- **Universo de máquina** (`#/m/<node_id>`, o `#/m/<node_id>/<YYYY-MM-DD>`):
+  totales de 14 días, gráficas de km/día y horas en labor/día, y tabla de
+  jornadas con primer y último fix. Con fecha, la ventana cierra ese día y no
+  hoy: se omite el estado en vivo —que es un dato del ahora— y se resalta el día
+  por el que se entró.
 - **Video del recorrido**: cada nodo se puede exportar como un `.mp4` con su
   jornada animada. Ver abajo.
 - **Frescura del dato** siempre visible, con detección de poller caído.
