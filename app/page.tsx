@@ -15,7 +15,10 @@ import {
   fetchFleet,
   fetchTracksDay,
   fetchEstadiasDay,
+  fetchRedMesh,
 } from "@/lib/queries";
+import type { SitioRed } from "@/lib/red";
+import { estaDadoDeBaja } from "@/lib/bajas";
 import { computeStats, enrichTrack } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
 import { useRutasPorVia } from "@/lib/useRutas";
@@ -59,6 +62,13 @@ export default function Page() {
     { node: NodeRow; points: TrackPoint[] }[]
   >([]);
   const [estadias, setEstadias] = useState<Record<string, Estadia[]>>({});
+  /**
+   * Sitios de la red mesh. Arranca vacío y sólo se llena con lo que responda
+   * `v_mesh_health`: las coordenadas de las antenas no se escriben en el código
+   * (ver lib/red.ts). Si la consulta falla, el mapa se queda sin antenas — es el
+   * precio deliberado de no publicar dónde están.
+   */
+  const [sitios, setSitios] = useState<SitioRed[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,6 +127,22 @@ export default function Page() {
     recargarFlota();
   }, [recargarFlota]);
 
+  // Igual que el registro de flota: la red va por su lado y su error no llega
+  // al banner. Que las tablas de la malla no existan no puede dejar el mapa sin
+  // máquinas — y al fallar se queda el respaldo, que al menos ubica las antenas.
+  const recargarRed = useCallback(async () => {
+    if (!SUPABASE_READY) return;
+    try {
+      setSitios(await fetchRedMesh());
+    } catch (e) {
+      console.warn("[red] no se pudo leer el estado de la malla", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    recargarRed();
+  }, [recargarRed]);
+
   /**
    * Instante al que se resuelve la identidad de la flota.
    *
@@ -147,7 +173,12 @@ export default function Page() {
       }
       if (!opts?.silent) setLoading(true);
       try {
-        const ns = await fetchNodes();
+        // Los nodos dados de baja se filtran aquí, en el único punto por el
+        // que entran: así el panel, el mapa, los rastros y las estadías quedan
+        // consistentes sin que cada uno tenga que acordarse de excluirlos.
+        const ns = (await fetchNodes()).filter(
+          (n) => !estaDadoDeBaja(n.node_id)
+        );
         setNodes(ns);
 
         const dia = mode === "live" ? todayLocal() : date;
@@ -182,11 +213,16 @@ export default function Page() {
   // Sondeo silencioso (sólo en vivo y sólo mientras se ve el mapa).
   const loadRef = useRef(load);
   loadRef.current = load;
+  const redRef = useRef(recargarRed);
+  redRef.current = recargarRed;
   useEffect(() => {
     // Durante la grabación de un video el sondeo se detiene: recargar a mitad
     // cambiaría los rastros que se están capturando.
     if (mode !== "live" || hashNode || videoNodeId) return;
-    const id = setInterval(() => loadRef.current({ silent: true }), POLL_MS);
+    const id = setInterval(() => {
+      loadRef.current({ silent: true });
+      redRef.current();
+    }, POLL_MS);
     return () => clearInterval(id);
   }, [mode, hashNode, videoNodeId]);
 
@@ -386,6 +422,7 @@ export default function Page() {
         <MapGL
           mode={mode}
           fleet={fleet}
+          sitios={sitios}
           trails={trails}
           replay={replay}
           selectedId={selectedId}

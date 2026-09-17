@@ -302,3 +302,72 @@ input[type="range"].replay::-moz-range-thumb {
   border: 2px solid #fff;
   cursor: pointer;
 }
+
+/* ---- Nodos fijos de la red mesh ----
+   Mismo patrón que `.mk` (ícono + anillo + etiqueta) pero más pequeño y sin
+   pulso: una antena no se mueve y no tiene por qué llamar la atención por
+   encima de las máquinas, que son lo que el supervisor está mirando. */
+.antena-marker {
+  background: none;
+  border: none;
+  cursor: help;
+  will-change: transform;
+}
+.ant {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease;
+}
+.ant:hover {
+  transform: scale(1.15);
+}
+.ant svg {
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+.ant-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+}
+.ant.activa .ant-ring {
+  border-color: var(--st-activa);
+}
+.ant.sin_respuesta .ant-ring {
+  border-color: #fab219;
+}
+.ant.inactiva .ant-ring {
+  border-color: #b23b3b;
+  border-style: dashed;
+}
+/* Sin datos: instalada pero su nodo no llega a la base. Se atenúa para que no
+   se lea como "reportando", que es justo lo que no sabemos. */
+.ant.sin_datos {
+  opacity: 0.72;
+}
+.ant.sin_datos .ant-ring {
+  border-color: var(--st-offline);
+  border-style: dotted;
+}
+.ant-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: -2px;
+  background: rgba(11, 17, 32, 0.82);
+  color: #e6edf4;
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  pointer-events: none;
+}

@@ -240,10 +240,14 @@ sitio. Esos viven en **`lib/puestos.ts`**, con su coordenada escrita a mano:
 
 ```ts
 export const PUESTOS: Record<string, Puesto> = {
-  "!2f3f6694": { nombre: "Portería", codigo: "PORT",
-                 lat: 4.481328, lon: -72.951689, color: "#7b4fd0" },
+  "<node_id>": { nombre: "Portería", codigo: "PORT",
+                 lat: <lat>, lon: <lon>, color: "#7b4fd0" },
 };
 ```
+
+⚠️ **Pendiente de seguridad:** este archivo todavía lleva la coordenada real
+escrita en el código, y el repositorio es público. Tiene que salir de aquí, como
+ya salió la de las antenas — ver abajo.
 
 Un nodo listado ahí cambia de comportamiento en tres cosas, y las tres por la
 misma razón —su posición se declara, no se mide—:
@@ -258,6 +262,65 @@ misma razón —su posición se declara, no se mide—:
 El estado y la hora del último fix **sí** siguen siendo del nodo: sirven para
 saber si el aparato está vivo. Si una portería se traslada, hay que corregir la
 coordenada aquí — el nodo no lo va a avisar.
+
+### Red mesh — los 7 nodos fijos
+
+Las antenas del predio se leen de Supabase (`mesh_sites` → `v_mesh_health`) y se
+dibujan siempre —en los dos modos— con ícono de antena, el nombre del sitio y una
+línea punteada al gateway rotulada con la distancia.
+
+⚠️ **Las coordenadas no van en el código ni en el repositorio.** La ubicación de
+las antenas es infraestructura de seguridad, y este repositorio es público:
+cualquier cosa que se escriba en un `.ts` viaja además en el bundle que descarga
+el navegador. `lib/red.ts` define la forma de un sitio y cómo se pinta; el dato
+llega en tiempo de ejecución. La carga inicial de `mesh_sites` vive en
+`supabase/mesh-sitios.local.sql`, fuera de git.
+
+Consecuencia asumida: si la consulta falla, el mapa no dibuja antenas. Antes
+había una lista de respaldo escrita a mano para que nunca faltaran; se quitó a
+propósito.
+
+La línea es **punteada a propósito**: es la topología *declarada* (radial desde
+la torre de oficinas), no la medida. La real tiene saltos que ese modelo no
+contempla — el nodo solar `11bb` ya aparece repitiendo tráfico ajeno, y Forsoza
+está a 15 km. Cuando el traceroute periódico entregue la ruta real, se reemplaza
+por los saltos medidos y ahí sí se dibuja continua.
+
+Las coordenadas se verifican contra las distancias del acta de instalación con la
+vista `v_mesh_sites_check`:
+
+```sql
+select * from v_mesh_sites_check;   -- cuadra = false → revisar ese sitio
+```
+
+Un dígito transpuesto mueve un nodo kilómetros sin que se note sobre la imagen
+satelital; contra la distancia al gateway, salta. Si falla **una**, es esa
+coordenada; si fallan **todas**, la mala es la del gateway, que es el centro del
+que cuelgan las demás. La comprobación vive en la base y no en un script del
+repo, porque es donde viven los datos.
+
+El esquema está en **`supabase/mesh.sql`** (pegar en el SQL
+Editor de Supabase): `mesh_sites` con las coordenadas de instalación,
+`traceroutes` con un registro por sondeo —incluidos los fallidos, que son los
+que permiten calcular disponibilidad— y `traceroute_hops` con la topología
+medida. Es puramente aditivo: no toca `nodes`, `node_positions` ni las tablas de
+flota. La vista `v_mesh_health` es la que pintará el mapa.
+
+El estado sale de `v_mesh_health` y son cuatro:
+
+| estado | color | qué significa |
+|---|---|---|
+| `activa` | verde | respondió el último sondeo, o se oyó su anuncio hace poco |
+| `sin_respuesta` | ámbar | 1–2 sondeos fallidos: puede ser una colisión del canal |
+| `inactiva` | rojo | 3 o más seguidos sin responder — hay que ir al sitio |
+| `sin_datos` | gris | aún no se ha sondeado, o no llegó la consulta |
+
+Los umbrales viven en la vista, no en la app, para poder calibrarlos sin
+desplegar. El precio es que la base puede devolver un estado que la app todavía
+no conozca: `metaDe()` cae a "sin datos" en vez de romper el mapa.
+
+Si la consulta falla, el mapa no dibuja antenas: no hay lista de respaldo en el
+código, a propósito.
 
 ## Qué hace
 
@@ -371,7 +434,7 @@ app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
               VideoModal (diálogo de exportación de video)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
-              puestos (nodos fijos: portería y su coordenada declarada)
+              puestos (nodos fijos: portería) · red (estado de la malla mesh)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
               icons (SVG de máquinas) · queries · geo · ranges · types

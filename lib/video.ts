@@ -7,6 +7,8 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
   CAPA_EXTREMOS,
   CAPA_RASTROS,
+  CAPA_RED,
+  CAPA_RED_ETIQ,
   CAPA_VIDEO_AVANCE,
   CAPA_VIDEO_RUTA,
   SRC_VIDEO_AVANCE,
@@ -237,8 +239,9 @@ export async function grabarRutaVideo(t: TrabajoVideo): Promise<ResultadoVideo> 
   try {
     // Los rastros de las demás máquinas estorban: el video es de un nodo, y la
     // línea de otro tractor sobre el mismo lote se lee como si fuera del que se
-    // está mostrando.
-    for (const capa of [CAPA_RASTROS, CAPA_EXTREMOS]) {
+    // está mostrando. Los enlaces de la mesh se apagan por lo mismo: cruzan el
+    // predio de lado a lado y en el video se leerían como parte del recorrido.
+    for (const capa of [CAPA_RASTROS, CAPA_EXTREMOS, CAPA_RED, CAPA_RED_ETIQ]) {
       if (!map.getLayer(capa)) continue;
       visibles.set(
         capa,

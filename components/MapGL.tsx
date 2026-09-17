@@ -19,8 +19,20 @@ import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
 import { puestoDe } from "@/lib/puestos";
-import { markerHTML } from "@/lib/icons";
-import { CAPA_EXTREMOS, CAPA_RASTROS } from "@/lib/capas";
+import { antenaHTML, markerHTML } from "@/lib/icons";
+import {
+  COLOR_RED,
+  enlacesDeclarados,
+  fmtDistKm,
+  metaDe,
+  type SitioRed,
+} from "@/lib/red";
+import {
+  CAPA_EXTREMOS,
+  CAPA_RASTROS,
+  CAPA_RED,
+  CAPA_RED_ETIQ,
+} from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
 
 /** Un rastro dibujable: los puntos de una máquina en el período visible. */
@@ -51,6 +63,8 @@ export interface ReplayPos {
 interface Props {
   mode: "live" | "history";
   fleet: FleetItem[] | null;
+  /** Sitios de la red mesh con su estado (`v_mesh_health`). */
+  sitios: SitioRed[];
   trails: Trail[];
   replay: ReplayPos[] | null;
   selectedId: string | null;
@@ -101,12 +115,50 @@ const SRC_ETIQ = "vias-etiquetas";
 const ETIQ_URL = "/vias-guaicaramo-etiquetas.geojson";
 
 /**
+ * Enlaces de la red mesh. Como las vías, va declarado dentro del estilo inicial:
+ * son postes instalados, no dependen de que Supabase responda ni de qué día se
+ * esté mirando, así que la capa tiene que existir siempre.
+ */
+const SRC_RED = CAPA_RED;
+
+/**
  * Una sola familia auto-hospedada en `public/fonts` (77 KB, rango 0-255). No se
  * usa un servidor de glifos público para no meterle al mapa una dependencia de
  * red que puede caerse. Los rótulos son ASCII ("B.10", "P.9"), así que ese rango
  * alcanza: un texto con acentos pediría un rango que no existe y no se dibujaría.
  */
 const FUENTE = ["Open Sans Semibold"];
+
+const FC_VACIA = { type: "FeatureCollection" as const, features: [] };
+
+/**
+ * Los enlaces declarados como GeoJSON: una línea del gateway a cada repetidor,
+ * teñida del estado del repetidor. El color es lo que hace legible el mapa de un
+ * vistazo: un tramo rojo dice a la vez qué sitio se cayó y por dónde llegaba.
+ */
+function redGeoJSON(sitios: SitioRed[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: enlacesDeclarados(sitios).map((e) => ({
+      type: "Feature" as const,
+      properties: {
+        sitio: e.hasta.site_name,
+        color: metaDe(e.hasta.estado).color,
+        // Con coma decimal porque es lo que se lee en el mapa en español. El
+        // rango de glifos cargado es ASCII, así que "1,83 km" se dibuja; un
+        // texto con acentos no.
+        km: fmtDistKm(e.hasta.dist_gateway_m),
+      },
+      geometry: {
+        type: "LineString" as const,
+        coordinates: [
+          [e.desde.lon as number, e.desde.lat as number],
+          [e.hasta.lon as number, e.hasta.lat as number],
+        ],
+      },
+    })),
+  };
+}
 
 /** Color por tipo de vía; las proyectadas se pintan en su propia capa. */
 const VIAS_COLOR: ExpressionSpecification = [
@@ -173,6 +225,7 @@ const VIAS_BORDE_ANCHO: ExpressionSpecification = [
 export default function MapGL({
   mode,
   fleet,
+  sitios,
   trails,
   replay,
   selectedId,
@@ -192,6 +245,7 @@ export default function MapGL({
   const pendingRef = useRef<(() => void)[]>([]);
   const markerRef = useRef<Map<string, Marker>>(new Map());
   const replayRef = useRef<Map<string, Marker>>(new Map());
+  const redRef = useRef<Map<string, Marker>>(new Map());
   // Handlers frescos sin recrear el mapa.
   const cbRef = useRef({ onSelect, onOpenMachine, onMap });
   cbRef.current = { onSelect, onOpenMachine, onMap };
@@ -231,6 +285,7 @@ export default function MapGL({
           },
           [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
           [SRC_ETIQ]: { type: "geojson", data: ETIQ_URL },
+          [SRC_RED]: { type: "geojson", data: FC_VACIA },
         },
         layers: [
           { id: "esri", type: "raster", source: "esri" },
@@ -274,6 +329,48 @@ export default function MapGL({
               "line-width": VIAS_ANCHO,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
+            },
+          },
+          // Enlaces de la mesh. Punteados a propósito: es la topología
+          // declarada (radial desde la torre), no la medida — ver lib/red.ts.
+          {
+            id: SRC_RED,
+            type: "line",
+            source: SRC_RED,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": ["get", "color"],
+              "line-width": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                9,
+                1,
+                13,
+                1.8,
+                16,
+                2.6,
+              ],
+              "line-opacity": 0.5,
+              "line-dasharray": [3, 2],
+            },
+          },
+          {
+            id: CAPA_RED_ETIQ,
+            type: "symbol",
+            source: SRC_RED,
+            minzoom: 11,
+            layout: {
+              "text-field": ["get", "km"],
+              "text-font": FUENTE,
+              "text-size": 10,
+              "symbol-placement": "line-center",
+              "text-padding": 6,
+            },
+            paint: {
+              "text-color": COLOR_RED,
+              "text-halo-color": "#0b1120",
+              "text-halo-width": 1.6,
             },
           },
           // Rótulo de bloque: orienta en la vista de predio y se apaga al
@@ -447,8 +544,60 @@ export default function MapGL({
       // otro—, así que el registro tiene que morir junto con su mapa.
       markerRef.current.clear();
       replayRef.current.clear();
+      redRef.current.clear();
     };
   }, []);
+
+  // --- Antenas de la red mesh ---
+  // Se pintan en los dos modos: son infraestructura instalada, no dependen del
+  // día que se esté mirando. El estado sale de `v_mesh_health`, así que el
+  // marcador cambia de color solo cuando el gateway sondea.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const pintar = () => {
+      const src = map.getSource(SRC_RED) as GeoJSONSource | undefined;
+      src?.setData(redGeoJSON(sitios));
+    };
+    whenReady(pintar);
+
+    const vistos = new Set<string>();
+    for (const s of sitios) {
+      // Sin coordenada no hay nada que dibujar. Sale igual en la base con
+      // estado "sin_datos", que es donde se ve que le falta el pin.
+      if (s.lat == null || s.lon == null) continue;
+      vistos.add(s.site_id);
+
+      let mk = redRef.current.get(s.site_id);
+      if (!mk) {
+        const el = document.createElement("div");
+        el.className = "antena-marker";
+        mk = new Marker({ element: el, anchor: "center" })
+          .setLngLat([s.lon, s.lat])
+          .addTo(map);
+        redRef.current.set(s.site_id, mk);
+      } else {
+        mk.setLngLat([s.lon, s.lat]);
+      }
+
+      const el = mk.getElement();
+      el.innerHTML = antenaHTML({
+        rol: s.role,
+        color: COLOR_RED,
+        sitio: s.site_name,
+        estado: s.estado,
+      });
+      el.title = tituloSitio(s);
+    }
+
+    redRef.current.forEach((mk, id) => {
+      if (!vistos.has(id)) {
+        mk.remove();
+        redRef.current.delete(id);
+      }
+    });
+  }, [sitios, whenReady]);
 
   // --- Rastros y extremos ---
   useEffect(() => {
@@ -726,4 +875,31 @@ function attachClicks(
     timer = null;
     cbRef.current.onOpenMachine(id);
   });
+}
+
+/**
+ * Tooltip de una antena: lo que hace falta para decidir si hay que ir al sitio.
+ *
+ * Incluye la ruta medida del último sondeo porque es el dato que no se puede
+ * deducir del mapa: "!9ea29bc4 --> !ffffffff --> !49b54350" dice que ese sitio
+ * no llega directo a la torre aunque la línea punteada lo sugiera.
+ */
+function tituloSitio(s: SitioRed): string {
+  const meta = metaDe(s.estado);
+  return [
+    `${s.site_name}${s.node_id ? ` · ${s.node_id}` : ""}`,
+    s.role === "gateway"
+      ? "Gateway (backhaul Starlink)"
+      : `Repetidor · ${fmtDistKm(s.dist_gateway_m)} del gateway`,
+    `Enlace: ${meta.label} — ${meta.ayuda}`,
+    s.min_sin_senal != null ? `Última señal: hace ${s.min_sin_senal} min` : "",
+    s.rtt_ms != null ? `Respuesta: ${(s.rtt_ms / 1000).toFixed(1)} s` : "",
+    s.route_text ? `Ruta medida: ${s.route_text}` : "",
+    s.fallos_consecutivos > 0
+      ? `Sondeos fallidos seguidos: ${s.fallos_consecutivos}`
+      : "",
+    s.notes ? `⚠ ${s.notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

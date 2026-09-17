@@ -148,3 +148,53 @@ export function markerHTML(opts: {
     <span class="mk-label">${esc(opts.codigo)}</span>
   </div>`;
 }
+
+/**
+ * Ícono de un nodo fijo de la red mesh.
+ *
+ * El gateway se distingue del repetidor por el plato del backhaul: es el único
+ * que sale a internet (Starlink), y en un mapa de malla saber cuál es el centro
+ * vale más que el nombre. Las ondas se dibujan siempre, incluso con el enlace
+ * caído: describen lo que el aparato ES, no lo que está haciendo — eso lo dice
+ * el color del anillo.
+ */
+export function antenaSVG(rol: "gateway" | "repetidor", color: string): string {
+  const c = color || "#22d3ee";
+  const plato =
+    rol === "gateway"
+      ? `<path d="M40 30 a9 9 0 0 1 13 6" fill="none" stroke="#e6edf4" stroke-width="2.5" stroke-linecap="round"/>
+         <circle cx="41" cy="30" r="2.6" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.2"/>`
+      : "";
+  return `<svg viewBox="0 0 64 64" aria-hidden="true">
+    <ellipse cx="32" cy="57" rx="15" ry="3.5" fill="rgba(0,0,0,.35)"/>
+    <path d="M22 56 L29 22 h6 l7 34" fill="none" stroke="#e6edf4" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M25 42 h14 M24 48 h17" stroke="#e6edf4" stroke-width="2" stroke-linecap="round"/>
+    <path d="M27 32 h10" stroke="#e6edf4" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="32" cy="17" r="3.4" fill="${c}" stroke="#0b0e12" stroke-width="1.2"/>
+    <path d="M24 16 a10 10 0 0 1 3-7" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M18 15 a16 16 0 0 1 5-11" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".65"/>
+    <path d="M40 16 a10 10 0 0 0-3-7" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M46 15 a16 16 0 0 0-5-11" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".65"/>
+    ${plato}
+  </svg>`;
+}
+
+/**
+ * HTML del marcador de una antena: ícono + anillo de estado + nombre del sitio.
+ *
+ * Lleva el nombre del sitio y no el hex del nodo porque en el mapa la pregunta
+ * es "¿qué se cayó?", y la respuesta útil es "Forsoza", no "!49b663b4". El hex
+ * está en el tooltip, para quien va a entrar al radio.
+ */
+export function antenaHTML(opts: {
+  rol: "gateway" | "repetidor";
+  color: string;
+  sitio: string;
+  estado: "activa" | "sin_respuesta" | "inactiva" | "sin_datos";
+}): string {
+  return `<div class="ant ${opts.estado}">
+    <div class="ant-ring"></div>
+    ${antenaSVG(opts.rol, opts.color)}
+    <span class="ant-label">${esc(opts.sitio)}</span>
+  </div>`;
+}

@@ -12,6 +12,9 @@
 export const CAPA_RASTROS = "trails";
 /** Puntos de inicio y fin de cada rastro. */
 export const CAPA_EXTREMOS = "trail-ends";
+/** Enlaces declarados de la red mesh, y su rótulo de distancia. */
+export const CAPA_RED = "red-enlaces";
+export const CAPA_RED_ETIQ = "red-enlaces-etiq";
 
 /** Capas temporales que sólo existen mientras se graba un video. */
 export const SRC_VIDEO_RUTA = "video-ruta";

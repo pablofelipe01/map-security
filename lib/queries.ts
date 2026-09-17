@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import type { NodeRow, TrackPoint, Estadia, FleetItem } from "./types";
 import { derivarEstado, FILAS_POR_NODO } from "./fleet";
 import { dayRange, bogotaDay, shiftDay } from "./ranges";
+import type { SitioRed } from "./red";
 
 const TRACK_COLUMNS =
   "id,node_id,sample_local,gps_time,lat,lon,alt_m,ground_speed," +
@@ -268,4 +269,29 @@ export async function fetchEstadiasDay(
     )
   );
   return Object.fromEntries(pares);
+}
+
+/**
+ * Estado de la red mesh: una fila por sitio (ver `supabase/mesh.sql`).
+ *
+ * Va aparte del resto de consultas y con su propio manejo de error porque es
+ * información de infraestructura, no de flota: que las tablas de la malla no
+ * existan todavía —o que la consulta falle— no puede dejar el mapa sin
+ * máquinas. Si falla, el mapa se queda sin antenas: no hay lista de respaldo
+ * en el código a propósito — ver `lib/red.ts`.
+ */
+export async function fetchRedMesh(): Promise<SitioRed[]> {
+  const { data, error } = await supabase
+    .from("v_mesh_health")
+    .select(
+      "site_id,node_id,site_name,role,lat,lon,dist_gateway_m,notes,estado," +
+        "min_sin_senal,ultimo_sondeo,ultimo_status,rtt_ms,hops_towards," +
+        "route_text,fallos_consecutivos"
+    )
+    .order("site_name");
+
+  if (error) throw error;
+  // `as unknown` como en el resto del archivo: con la lista de columnas armada
+  // por concatenación, supabase-js no puede inferir la forma de la fila.
+  return (data ?? []) as unknown as SitioRed[];
 }
