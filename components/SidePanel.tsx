@@ -10,6 +10,7 @@ import {
   SIN_SENAL_MIN,
 } from "@/lib/fleet";
 import { maquinaDe, estaRegistrado, flotaConfigurada } from "@/lib/tractores";
+import { esPuesto, puestoDe } from "@/lib/puestos";
 import { turnosDelDia, type Flota } from "@/lib/registro";
 import { fmtDateTime } from "@/lib/geo";
 import { machineSVG } from "@/lib/icons";
@@ -166,7 +167,9 @@ function FleetPanel({
             key={i.node.node_id}
             seleccionada={sel}
             onClick={() => onSelect(i.node.node_id)}
-            puntos={puntosDe(history, i.node.node_id)}
+            // Un puesto fijo no tiene recorrido: se le apaga el botón de video
+            // pasándole cero fixes, que es lo que significa para ese botón.
+            puntos={esPuesto(i.node.node_id) ? 0 : puntosDe(history, i.node.node_id)}
             onVideo={() => onVideo(i.node.node_id)}
           >
             <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
@@ -223,6 +226,11 @@ function MachinePanel({
     item.node.short_name
   );
   const meta = ESTADO_META[item.estado];
+  // Un puesto fijo (portería) es un nodo instalado en un sitio, no una máquina:
+  // no tiene recorrido, ni operador al mando, ni video que grabar. La ficha se
+  // recorta a lo que sí existe, en vez de mostrar ceros que se leen como una
+  // jornada sin trabajo. Ver lib/puestos.ts.
+  const puesto = puestoDe(item.node.node_id);
   // Las cifras del día vienen del mismo cálculo que alimenta el histórico, para
   // que "12,4 km hoy" diga lo mismo en los dos modos.
   const fila = history.find((h) => h.node.node_id === item.node.node_id);
@@ -241,8 +249,13 @@ function MachinePanel({
       <button
         type="button"
         onClick={() => onAsignar(item.node.node_id)}
-        title="Asignar máquina y operador a este nodo"
-        className="-mx-1.5 mb-1 mt-2.5 flex w-[calc(100%+12px)] items-center gap-3 rounded-xl px-1.5 py-1.5 text-left transition hover:bg-surface-2"
+        disabled={!!puesto}
+        title={
+          puesto
+            ? "Puesto fijo: su nombre y su coordenada están en la configuración (lib/puestos.ts)"
+            : "Asignar máquina y operador a este nodo"
+        }
+        className="-mx-1.5 mb-1 mt-2.5 flex w-[calc(100%+12px)] items-center gap-3 rounded-xl px-1.5 py-1.5 text-left transition enabled:hover:bg-surface-2"
       >
         <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[46px] w-[46px]" />
         <div className="min-w-0 flex-1">
@@ -250,10 +263,10 @@ function MachinePanel({
             {maq.nombre}
           </div>
           <div className="font-mono text-[11px] tracking-[1px] text-ink-2">
-            {maq.codigo} · {maq.tipo.toUpperCase()}
+            {maq.codigo} · {puesto ? "PUESTO FIJO" : maq.tipo.toUpperCase()}
           </div>
         </div>
-        <span className="shrink-0 text-[13px] text-ink-3">✎</span>
+        {!puesto && <span className="shrink-0 text-[13px] text-ink-3">✎</span>}
       </button>
 
       {!estaRegistrado(item.node.node_id) && (
@@ -274,15 +287,20 @@ function MachinePanel({
         {meta.label}
       </span>
 
-      <div className="my-3.5 grid grid-cols-2 gap-2.5">
-        <Tile label="Recorrido hoy" value={hoy ? fmtDist(hoy.totalDistanceM) : "—"} />
-        <Tile
-          label="En labor hoy"
-          value={hoy ? fmtDuration(hoy.movingMinutes) : "—"}
-        />
-        <Tile label="Detenciones" value={hoy ? String(hoy.stops) : "—"} />
-        <Tile label="Velocidad" value={fmtVel(item.velocidadKmh)} />
-      </div>
+      {!puesto && (
+        <div className="my-3.5 grid grid-cols-2 gap-2.5">
+          <Tile
+            label="Recorrido hoy"
+            value={hoy ? fmtDist(hoy.totalDistanceM) : "—"}
+          />
+          <Tile
+            label="En labor hoy"
+            value={hoy ? fmtDuration(hoy.movingMinutes) : "—"}
+          />
+          <Tile label="Detenciones" value={hoy ? String(hoy.stops) : "—"} />
+          <Tile label="Velocidad" value={fmtVel(item.velocidadKmh)} />
+        </div>
+      )}
 
       {/* El id del nodo va primero porque es el único dato de esta ficha que no
           cambia nunca: la máquina se renombra, el operador rota y el nodo hasta
@@ -301,19 +319,25 @@ function MachinePanel({
       </div>
 
       {/* Operador y labor salen del registro de flota, no de la máquina: se
-          rotulan como tal para que nadie los lea como telemetría. */}
-      <div className="kv">
-        <span className="text-ink-2">Al mando</span>
-        <button
-          type="button"
-          onClick={() => onAsignar(item.node.node_id)}
-          title="Registrar el relevo"
-          className="text-right font-semibold underline decoration-dotted underline-offset-2"
-        >
-          {maq.operador || "asignar"}
-        </button>
-      </div>
-      <TurnosDelDia flota={flota} nodeId={item.node.node_id} dia={date} />
+          rotulan como tal para que nadie los lea como telemetría. Un puesto fijo
+          no está en ese registro —no hay máquina a la que subirse— así que estas
+          filas se omiten en vez de ofrecer una asignación que no aplica. */}
+      {!puesto && (
+        <>
+          <div className="kv">
+            <span className="text-ink-2">Al mando</span>
+            <button
+              type="button"
+              onClick={() => onAsignar(item.node.node_id)}
+              title="Registrar el relevo"
+              className="text-right font-semibold underline decoration-dotted underline-offset-2"
+            >
+              {maq.operador || "asignar"}
+            </button>
+          </div>
+          <TurnosDelDia flota={flota} nodeId={item.node.node_id} dia={date} />
+        </>
+      )}
       {maq.labor && (
         <div className="kv">
           <span className="text-ink-2">Labor</span>
@@ -336,8 +360,21 @@ function MachinePanel({
         </span>
       </div>
       <div className="kv">
-        <span className="text-ink-2">Coordenadas</span>
-        {item.posicion ? (
+        <span className="text-ink-2">
+          {puesto ? "Coordenadas del puesto" : "Coordenadas"}
+        </span>
+        {puesto ? (
+          <button
+            type="button"
+            onClick={() =>
+              navigator.clipboard?.writeText(`${puesto.lat}, ${puesto.lon}`)
+            }
+            title="Copiar coordenadas"
+            className="text-right font-mono font-semibold underline decoration-dotted underline-offset-2"
+          >
+            {fmtCoords(puesto.lat, puesto.lon)}
+          </button>
+        ) : item.posicion ? (
           <button
             type="button"
             onClick={() =>
@@ -355,7 +392,9 @@ function MachinePanel({
         )}
       </div>
       <p className="mt-1 text-[10px] leading-tight text-ink-3">
-        La máquina y el operador provienen del registro de flota, no del equipo.
+        {puesto
+          ? "Puesto fijo: el marcador va en la coordenada declarada en la configuración, no en el último fix del nodo. El estado y la hora sí son del nodo."
+          : "La máquina y el operador provienen del registro de flota, no del equipo."}
       </p>
 
       {item.estado === "offline" && item.posicion && (
@@ -373,18 +412,20 @@ function MachinePanel({
         Universo de la máquina →
       </button>
 
-      <button
-        className="btn-ghost mt-2 disabled:opacity-40"
-        disabled={(hoyPuntos ?? 0) < 2}
-        title={
-          (hoyPuntos ?? 0) < 2
-            ? "Hoy no tiene recorrido para grabar"
-            : "Exportar el recorrido de hoy como video"
-        }
-        onClick={() => onVideo(item.node.node_id)}
-      >
-        ⏺ Descargar video del recorrido
-      </button>
+      {!puesto && (
+        <button
+          className="btn-ghost mt-2 disabled:opacity-40"
+          disabled={(hoyPuntos ?? 0) < 2}
+          title={
+            (hoyPuntos ?? 0) < 2
+              ? "Hoy no tiene recorrido para grabar"
+              : "Exportar el recorrido de hoy como video"
+          }
+          onClick={() => onVideo(item.node.node_id)}
+        >
+          ⏺ Descargar video del recorrido
+        </button>
+      )}
     </>
   );
 }
@@ -392,7 +433,9 @@ function MachinePanel({
 /* =========================== HISTÓRICO =========================== */
 
 function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
-  const conDatos = history.filter((h) => h.puntos > 0);
+  const conDatos = history.filter(
+    (h) => h.puntos > 0 && !esPuesto(h.node.node_id)
+  );
   const totalM = conDatos.reduce((s, h) => s + h.stats.totalDistanceM, 0);
   const totalMin = conDatos.reduce((s, h) => s + h.stats.movingMinutes, 0);
   const paradas = conDatos.reduce((s, h) => s + h.stats.stops, 0);
@@ -419,13 +462,16 @@ function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
         );
         const sel = h.node.node_id === selectedId;
         const vacio = h.puntos === 0;
+        // Los metros de un puesto fijo son dispersión del GPS, no recorrido: la
+        // fila lo dice en vez de sumarlos como si hubiera trabajado.
+        const puesto = esPuesto(h.node.node_id);
         return (
           <Fila
             key={h.node.node_id}
             seleccionada={sel}
             atenuada={vacio}
             onClick={() => onSelect(h.node.node_id)}
-            puntos={h.puntos}
+            puntos={puesto ? 0 : h.puntos}
             onVideo={() => onVideo(h.node.node_id)}
           >
             <MiniIcon tipo={maq.tipo} color={maq.color} className="h-[34px] w-[34px]" />
@@ -434,16 +480,18 @@ function HistoryPanel({ history, date, selectedId, onSelect, onVideo }: Props) {
                 {maq.nombre}
               </span>
               <span className="block truncate text-[11px] text-ink-2">
-                {vacio
-                  ? "sin reportes ese día"
-                  : `${maq.codigo} · ${fmtDuration(
-                      h.stats.movingMinutes
-                    )} en labor · ${h.stats.stops} detenciones`}
+                {puesto
+                  ? `${maq.codigo} · puesto fijo`
+                  : vacio
+                    ? "sin reportes ese día"
+                    : `${maq.codigo} · ${fmtDuration(
+                        h.stats.movingMinutes
+                      )} en labor · ${h.stats.stops} detenciones`}
               </span>
             </span>
             <span className="shrink-0 text-right">
               <span className="block font-mono text-xs font-semibold">
-                {vacio ? "—" : fmtDist(h.stats.totalDistanceM)}
+                {puesto || vacio ? "—" : fmtDist(h.stats.totalDistanceM)}
               </span>
               <span className="block text-[9px] tracking-[1px] text-ink-3">
                 RECORRIDO

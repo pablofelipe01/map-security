@@ -228,10 +228,36 @@ export const MAQUINAS: Record<string, Maquina> = {
 };
 ```
 
-`tipo` acepta `tractor | aspersora | retro` y define el ícono. Mientras el
-registro esté vacío, el panel lo avisa en pantalla y las máquinas usan su nombre
-de fábrica. **Ojo:** `operador` y `labor` son configuración, no telemetría — la
-UI los rotula como tal.
+`tipo` acepta `tractor | camion | volqueta | aspersora | retro | porteria` y
+define el ícono. Mientras el registro esté vacío, el panel lo avisa en pantalla
+y las máquinas usan su nombre de fábrica. **Ojo:** `operador` y `labor` son
+configuración, no telemetría — la UI los rotula como tal.
+
+### Puestos fijos (portería)
+
+No todos los nodos van montados en una máquina: algunos están instalados en un
+sitio. Esos viven en **`lib/puestos.ts`**, con su coordenada escrita a mano:
+
+```ts
+export const PUESTOS: Record<string, Puesto> = {
+  "!2f3f6694": { nombre: "Portería", codigo: "PORT",
+                 lat: 4.481328, lon: -72.951689, color: "#7b4fd0" },
+};
+```
+
+Un nodo listado ahí cambia de comportamiento en tres cosas, y las tres por la
+misma razón —su posición se declara, no se mide—:
+
+1. se dibuja con el ícono de **vigilante** en la coordenada del archivo, no en su
+   último fix, y se dibuja aunque nunca haya reportado;
+2. no se le pinta rastro ni se le cuentan kilómetros: sus fixes se mueven ±20-30
+   m por ruido del GPS, y eso no es un recorrido;
+3. su ficha omite recorrido, operador al mando y video, porque nada de eso
+   aplica a un poste.
+
+El estado y la hora del último fix **sí** siguen siendo del nodo: sirven para
+saber si el aparato está vivo. Si una portería se traslada, hay que corregir la
+coordenada aquí — el nodo no lo va a avisar.
 
 ## Qué hace
 
@@ -345,6 +371,7 @@ app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
               VideoModal (diálogo de exportación de video)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
+              puestos (nodos fijos: portería y su coordenada declarada)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
               icons (SVG de máquinas) · queries · geo · ranges · types

@@ -18,6 +18,7 @@ import {
 import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
+import { puestoDe } from "@/lib/puestos";
 import { markerHTML } from "@/lib/icons";
 import { CAPA_EXTREMOS, CAPA_RASTROS } from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
@@ -531,10 +532,16 @@ export default function MapGL({
 
     const vistos = new Set<string>();
     for (const item of fleet) {
+      const id = item.node.node_id;
+      // Un puesto fijo se dibuja en su coordenada declarada (lib/puestos.ts) y
+      // no en su último fix: el nodo no se mueve, pero su GPS sí lo hace por
+      // ruido, y una portería que baila sobre el lote no informa nada. Por lo
+      // mismo se dibuja aunque el nodo no haya entregado coordenadas nunca:
+      // dónde está no depende de que reporte.
+      const puesto = puestoDe(id);
       // Sin coordenadas no hay nada honesto que dibujar: la máquina existe pero
       // su ubicación no. Aparece en el panel FLOTA como "Sin GPS", no aquí.
-      if (!item.posicion) continue;
-      const id = item.node.node_id;
+      if (!puesto && !item.posicion) continue;
       vistos.add(id);
 
       const maq = maquinaDe(id, item.node.long_name, item.node.short_name);
@@ -543,9 +550,11 @@ export default function MapGL({
         color: maq.color,
         codigo: maq.codigo,
         estado: item.estado,
-        rumbo: item.rumbo,
+        rumbo: puesto ? null : item.rumbo,
       });
-      const lngLat: [number, number] = [item.posicion.lon, item.posicion.lat];
+      const lngLat: [number, number] = puesto
+        ? [puesto.lon, puesto.lat]
+        : [item.posicion!.lon, item.posicion!.lat];
 
       let mk = markerRef.current.get(id);
       if (!mk) {
@@ -635,12 +644,18 @@ export default function MapGL({
         .find((x) => x.nodeId === selectedId)
         ?.latlngs.forEach(([la, lo]) => push(lo, la));
       const item = fleet?.find((f) => f.node.node_id === selectedId);
-      if (item?.posicion) push(item.posicion.lon, item.posicion.lat);
+      if (item) empujar(item);
     } else {
       trails.forEach((t) => t.latlngs.forEach(([la, lo]) => push(lo, la)));
-      fleet?.forEach((f) => {
-        if (f.posicion) push(f.posicion.lon, f.posicion.lat);
-      });
+      fleet?.forEach(empujar);
+    }
+
+    // El encuadre tiene que apuntar a donde está dibujado el marcador, que para
+    // un puesto fijo es su coordenada declarada y no la del último fix.
+    function empujar(f: FleetItem) {
+      const puesto = puestoDe(f.node.node_id);
+      if (puesto) push(puesto.lon, puesto.lat);
+      else if (f.posicion) push(f.posicion.lon, f.posicion.lat);
     }
 
     const encuadrar = () => {

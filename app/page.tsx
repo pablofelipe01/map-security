@@ -23,6 +23,7 @@ import { positionAt, ventanaConDatos } from "@/lib/replay";
 import { dayRange, todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
 import { maquinaDe, setRegistroFlota } from "@/lib/tractores";
+import { esPuesto, puestoDe } from "@/lib/puestos";
 import {
   fetchFlota,
   registroEn,
@@ -203,7 +204,10 @@ export default function Page() {
   const trailsCrudos = useMemo<Trail[]>(
     () =>
       tracks
-        .filter((t) => t.points.length > 0)
+        // Un puesto fijo no tiene recorrido. Sus fixes se mueven unas decenas de
+        // metros por ruido del GPS, y dibujarlos le inventaría a la portería un
+        // rastro —y un kilometraje— que nadie caminó. Ver lib/puestos.ts.
+        .filter((t) => t.points.length > 0 && !esPuesto(t.node.node_id))
         .map(({ node, points }) => ({
           nodeId: node.node_id,
           color: maquinaDe(node.node_id, node.long_name, node.short_name).color,
@@ -247,6 +251,20 @@ export default function Page() {
     if (mode !== "history") return null;
     const out: ReplayPos[] = [];
     for (const t of tracks) {
+      // Los puestos fijos no se reproducen: se quedan clavados en su coordenada
+      // declarada, que es lo que son. Siguen dibujándose para que la portería
+      // sirva de referencia mientras se mira el recorrido de otra máquina.
+      const puesto = puestoDe(t.node.node_id);
+      if (puesto) {
+        out.push({
+          nodeId: t.node.node_id,
+          lat: puesto.lat,
+          lon: puesto.lon,
+          rumbo: null,
+          moviendo: false,
+        });
+        continue;
+      }
       const pos = positionAt(t.points, minute, rutas?.get(t.node.node_id));
       if (pos) out.push({ nodeId: t.node.node_id, ...pos });
     }

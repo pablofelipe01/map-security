@@ -1,3 +1,5 @@
+import { puestoDe } from "./puestos";
+
 /**
  * Registro de la flota: node_id → identidad de la máquina.
  *
@@ -32,7 +34,9 @@ export type TipoMaquina =
   | "camion"
   | "volqueta"
   | "aspersora"
-  | "retro";
+  | "retro"
+  /** No es una máquina: un puesto fijo con vigilante. Ver `lib/puestos.ts`. */
+  | "porteria";
 
 export interface Maquina {
   /** Código operativo corto, va en la etiqueta del mapa. Ej. "T-01". */
@@ -57,6 +61,7 @@ export const TIPOS_MAQUINA: { valor: TipoMaquina; label: string }[] = [
   { valor: "volqueta", label: "Volqueta" },
   { valor: "aspersora", label: "Aspersora" },
   { valor: "retro", label: "Retroexcavadora" },
+  { valor: "porteria", label: "Portería" },
 ];
 
 /**
@@ -115,15 +120,32 @@ export function flotaConfigurada(): boolean {
 }
 
 /**
- * Resuelve la identidad de un nodo: primero el registro de Supabase, luego el
- * respaldo de este archivo, y si no hay ninguno, los datos de fábrica del nodo.
- * Siempre devuelve algo dibujable: la UI nunca tiene que manejar el caso nulo.
+ * Resuelve la identidad de un nodo: primero los puestos fijos, luego el
+ * registro de Supabase, luego el respaldo de este archivo, y si no hay ninguno,
+ * los datos de fábrica del nodo. Siempre devuelve algo dibujable: la UI nunca
+ * tiene que manejar el caso nulo.
+ *
+ * Los puestos van de primeros porque no son máquinas: una portería no se monta
+ * en un tractor ni la maneja nadie, y su marcador se dibuja en la coordenada
+ * declarada en `lib/puestos.ts`. Si el registro de flota pudiera pisarlos, el
+ * mapa terminaría con un tractor clavado en un punto fijo. Para dejar de tratar
+ * un nodo como puesto hay que sacarlo de ese archivo.
  */
 export function maquinaDe(
   nodeId: string,
   longName?: string | null,
   shortName?: string | null
 ): Maquina {
+  const puesto = puestoDe(nodeId);
+  if (puesto) {
+    return {
+      codigo: puesto.codigo,
+      nombre: puesto.nombre,
+      tipo: "porteria",
+      color: puesto.color,
+    };
+  }
+
   const m = REGISTRO[nodeId] ?? MAQUINAS[nodeId];
   if (m) return m;
   return {
@@ -136,5 +158,7 @@ export function maquinaDe(
 
 /** true si ese nodo ya tiene identidad diligenciada (no está usando el nombre de fábrica). */
 export function estaRegistrado(nodeId: string): boolean {
-  return nodeId in REGISTRO || nodeId in MAQUINAS;
+  // Un puesto fijo ya tiene identidad escrita en `lib/puestos.ts`: no hay nada
+  // que asignarle, así que la UI no debe pedir que se bautice.
+  return nodeId in REGISTRO || nodeId in MAQUINAS || puestoDe(nodeId) != null;
 }

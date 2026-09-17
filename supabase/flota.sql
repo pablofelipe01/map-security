@@ -51,7 +51,7 @@ create table if not exists public.maquinas (
 -- que ya existe: así, ampliar la lista se aplica también donde ya se corrió.
 alter table public.maquinas drop constraint if exists maquinas_tipo_valido;
 alter table public.maquinas add constraint maquinas_tipo_valido
-  check (tipo in ('tractor', 'camion', 'volqueta', 'aspersora', 'retro'));
+  check (tipo in ('tractor', 'camion', 'volqueta', 'aspersora', 'retro', 'porteria'));
 
 -- Que no se dupliquen nombres ni códigos. En minúsculas y sin espacios de
 -- sobra, para que "La Mona" y "la mona " no convivan como dos máquinas.

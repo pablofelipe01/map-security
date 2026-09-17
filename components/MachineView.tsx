@@ -6,6 +6,7 @@ import { fetchDailySeries, fetchEstadias, fetchFleet } from "@/lib/queries";
 import { enrichTrack, computeStats, fmtDist, fmtDuration, fmtTime } from "@/lib/geo";
 import { ESTADO_META, fmtEdad, SIN_SENAL_MIN } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
+import { puestoDe } from "@/lib/puestos";
 import { dayRange } from "@/lib/ranges";
 import BarChart from "./BarChart";
 import { MiniIcon, Tile } from "./SidePanel";
@@ -40,6 +41,7 @@ export default function MachineView({ node, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const maq = maquinaDe(node.node_id, node.long_name, node.short_name);
+  const puesto = puestoDe(node.node_id);
 
   useEffect(() => {
     let vivo = true;
@@ -135,6 +137,18 @@ export default function MachineView({ node, onBack }: Props) {
           <span className="text-ink-3">({fmtEdad(item?.edadFixMin ?? null)})</span>
         </div>
       </div>
+
+      {/* Un puesto fijo no recorre nada: los kilómetros y las detenciones de
+          abajo son ruido del GPS, no trabajo. Se muestran igual porque sirven
+          para ver si el nodo sigue reportando, pero dichos por lo que son. */}
+      {puesto && (
+        <p className="mb-4 rounded-card border border-border bg-surface-2 px-3 py-2.5 text-xs text-ink-2">
+          Este nodo es un puesto fijo ({puesto.nombre}), no una máquina. En el
+          mapa se dibuja en su coordenada declarada. Los kilómetros y las
+          detenciones de esta ficha son la dispersión de su propio GPS —±20-30 m
+          entre fixes—, no un recorrido.
+        </p>
+      )}
 
       {error && (
         <p className="mb-4 rounded-card border border-st-alerta/40 bg-[#fdf0f0] px-3 py-2 text-xs text-st-alerta">

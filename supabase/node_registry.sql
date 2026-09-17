@@ -44,7 +44,7 @@ alter table public.node_registry
   drop constraint if exists node_registry_tipo_valido;
 alter table public.node_registry
   add constraint node_registry_tipo_valido
-  check (tipo in ('tractor', 'camion', 'volqueta', 'aspersora', 'retro'));
+  check (tipo in ('tractor', 'camion', 'volqueta', 'aspersora', 'retro', 'porteria'));
 
 -- Sin FK a `nodes`: el registro puede prepararse antes de que el nodo aparezca
 -- en la red, y un nodo que se dé de baja no debe borrar su historia de nombres.

@@ -80,6 +80,24 @@ export function machineSVG(tipo: TipoMaquina, color: string): string {
     </svg>`;
   }
 
+  // La portería no es una máquina: es un puesto con vigilante. Se dibuja la
+  // figura de la persona —gorra, cara y uniforme— y no una caseta, porque a 20
+  // px de alto una caseta es un cuadrito indistinguible de cualquier otra cosa
+  // del mapa, mientras que una silueta humana se lee de inmediato.
+  if (tipo === "porteria") {
+    return `<svg viewBox="0 0 64 64" aria-hidden="true">
+      <ellipse cx="32" cy="57" rx="17" ry="4" fill="rgba(0,0,0,.35)"/>
+      <path d="M14 55 v-7 a13 13 0 0 1 9-12.4 h18 a13 13 0 0 1 9 12.4 v7 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M26 35.6 L32 44 L38 35.6" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.2" stroke-linejoin="round"/>
+      <circle cx="32" cy="27" r="8.5" fill="#f0d9bf" stroke="#0b0e12" stroke-width="1.5"/>
+      <path d="M21 19 a11 9 0 0 1 22 0 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
+      <rect x="17" y="18.5" width="30" height="4" rx="2" fill="#0b0e12"/>
+      <path d="M29 13.5 h6 v3 h-6 z" fill="#e6edf4"/>
+      <circle cx="22.5" cy="47" r="2.2" fill="#fde68a" stroke="#0b0e12" stroke-width="1"/>
+      <path d="M32 46 v9" stroke="#0b0e12" stroke-width="1.2" opacity=".5"/>
+    </svg>`;
+  }
+
   // tractor (por defecto)
   return `<svg viewBox="0 0 64 64" aria-hidden="true">
     <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
