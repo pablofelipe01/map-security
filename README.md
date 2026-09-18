@@ -179,6 +179,53 @@ El código completo aparece de cerca porque **el número de parcela se repite en
 bloques** (hay un `P.10` en el B.4 y otro en el B.5): a secas es ambiguo, y de
 cerca es justo cuando alguien lo va a usar para decir dónde está la máquina.
 
+### Capa de acopios
+
+Los **845 acopios** del predio —los puntos donde se junta el fruto para
+recogerlo— salen del plano del Departamento Agronómico *Acopios Guaicaramo*
+(enero 23 de 2026). Como las vías, son infraestructura fija: van declarados en el
+estilo inicial y no tienen interruptor. Aparecen desde z12 (más lejos son una
+mancha) y muestran su número desde z15.
+
+El origen es un **PDF geoespacial**, no un KMZ: el plano trae un diccionario
+`/Measure /GEO` que amarra la página a coordenadas y capas de contenido opcional
+(OCG) que separan acopios, parcelas, vías y canales. Eso permite leerlo como un
+SIG. La conversión pide `pypdf`:
+
+```bash
+pip install pypdf
+python scripts/pdf-acopios-a-geojson.py "<ruta>/Acopios Guaicaramo 2026.pdf"
+```
+
+Dos cosas del plano explican por qué el script no es un volcado directo:
+
+- **Cada acopio es un símbolo, no un polígono.** Está dibujado como un anillo de
+  ~18 vértices de área siempre idéntica (~7.100 m²), que es el tamaño del ícono,
+  no del acopio. Lo que significa el dato es su centro, y eso es lo que se guarda.
+- **El número vive en otra capa.** Los rótulos están sueltos, sin vínculo con el
+  símbolo, así que el script los vuelve a emparejar por cercanía, resolviendo
+  primero los pares más próximos. Quedan 836 de 845 con número; los 9 restantes
+  no tienen rótulo en el plano.
+
+**Control de calidad.** El plano también trae las vías, así que hay cómo
+verificar la georreferencia contra una fuente independiente: las vías extraídas
+del PDF caen a **1,0 m de mediana** (p99: 2,0 m) de las del KMZ de topografía. El
+segundo control lo imprime el propio script: el número de acopio se repite entre
+lotes pero debe ser único dentro de uno, y sólo hay **1 par `(lote, num)`
+repetido** en 836 — si ese número crece, el emparejamiento se desalineó.
+
+Cada acopio lleva `num`, y además `lote` y `bloque` resueltos por punto‑en‑
+polígono contra las parcelas del mismo plano (801 de 845). Ojo: esos códigos son
+**del plano 2026**, que renombró lotes que el KMZ todavía llama por código
+(`B.91-P.116` es hoy `Lejanias`); contra los rótulos del KMZ coinciden 384 de
+442, y casi toda la diferencia son esos renombres, no errores de ubicación. El
+`lote` es contexto, no una clave: la identidad del acopio es su posición.
+
+El plano tiene además **polígonos de parcela reales** (581 lotes cerrados, 11.322
+ha) y las redes de canales primarios y secundarios, que hoy no se dibujan. El
+script ya los extrae — están en `figuras['PARCELA']`, `['CanPrimarios']` y
+`['CanSecundarios']`— si algún día se quieren como capa.
+
 Los rótulos de bloque se dibujan con `text-allow-overlap`, los de parcela no: 48
 etiquetas siempre valen la pena, 494 encimadas no se leen.
 
@@ -448,8 +495,10 @@ lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
               icons (SVG de máquinas) · queries · geo · ranges · types
 public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
+              acopios-guaicaramo.geojson (845 acopios, capa fija)
               fonts/ (glifos de los rótulos) · worker de maplibre
 scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
+              pdf-acopios-a-geojson.py (regenera los acopios desde el plano PDF)
               copiar-worker-maplibre.mjs (corre solo en predev/prebuild)
 ```
 

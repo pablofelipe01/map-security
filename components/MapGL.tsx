@@ -153,6 +153,26 @@ const SRC_ETIQ = "vias-etiquetas";
 const ETIQ_URL = "/vias-guaicaramo-etiquetas.geojson";
 
 /**
+ * Acopios: los 845 puntos donde se junta el fruto para recogerlo. Como las
+ * vías, son infraestructura fija del predio y van declarados en el estilo
+ * inicial, sin interruptor.
+ *
+ * El GeoJSON sale del plano del Departamento Agronómico ("Acopios Guaicaramo
+ * 2026", enero 23 de 2026) con `scripts/pdf-acopios-a-geojson.py`; ver README.
+ * En el plano cada acopio es un símbolo de tamaño fijo, no un polígono: lo que
+ * se guarda es su centro, que es lo que significa el dato.
+ */
+const SRC_ACOPIOS = "acopios";
+const ACOPIOS_URL = "/acopios-guaicaramo.geojson";
+
+/**
+ * Violeta: es el único tono libre del mapa. Las vías ya se llevaron el ámbar y
+ * el blanco, la mesh el cian, y los rastros de máquina el resto de la rueda; un
+ * color repetido haría dudar de qué se está mirando.
+ */
+const ACOPIOS_COLOR = "#c084fc";
+
+/**
  * Enlaces de la red mesh. Como las vías, va declarado dentro del estilo inicial:
  * son postes instalados, no dependen de que Supabase responda ni de qué día se
  * esté mirando, así que la capa tiene que existir siempre.
@@ -324,6 +344,7 @@ export default function MapGL({
           },
           [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
           [SRC_ETIQ]: { type: "geojson", data: ETIQ_URL },
+          [SRC_ACOPIOS]: { type: "geojson", data: ACOPIOS_URL },
           [SRC_RED]: { type: "geojson", data: FC_VACIA },
         },
         layers: [
@@ -368,6 +389,37 @@ export default function MapGL({
               "line-width": VIAS_ANCHO,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
+            },
+          },
+          // Acopios. Van justo encima de las vías —el acopio se entiende contra
+          // la vía por la que se saca el fruto— y debajo de la mesh y de los
+          // rastros, que son el dato que se mira.
+          //
+          // Desde z12: más lejos los 845 puntos se juntan en una mancha que no
+          // dice nada. El círculo se deja hueco (relleno tenue y borde firme)
+          // para que no tape la imagen satelital del propio acopio.
+          {
+            id: SRC_ACOPIOS,
+            type: "circle",
+            source: SRC_ACOPIOS,
+            minzoom: 12,
+            paint: {
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                12,
+                2,
+                15,
+                4,
+                18,
+                7,
+              ],
+              "circle-color": ACOPIOS_COLOR,
+              "circle-opacity": 0.35,
+              "circle-stroke-color": ACOPIOS_COLOR,
+              "circle-stroke-width": 1.2,
+              "circle-stroke-opacity": 0.9,
             },
           },
           // Enlaces de la mesh. Punteados a propósito: es la topología
@@ -470,6 +522,31 @@ export default function MapGL({
               "text-halo-color": "#0b1120",
               "text-halo-width": 1.4,
               "text-opacity": 0.9,
+            },
+          },
+          // Número de acopio. Sólo desde z15, como el rótulo de parcela: el
+          // número se repite entre lotes ("el 37" existe en varios bloques), así
+          // que suelto sólo sirve cuando ya se está mirando un lote. Se deja
+          // competir con los demás rótulos —sin `allow-overlap`— porque son 836
+          // y a media escala taparían el mapa.
+          {
+            id: "acopios-num",
+            type: "symbol",
+            source: SRC_ACOPIOS,
+            minzoom: 15,
+            filter: ["has", "num"],
+            layout: {
+              "text-field": ["get", "num"],
+              "text-font": FUENTE,
+              "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10, 18, 13],
+              "text-offset": [0, -1],
+              "text-anchor": "bottom",
+              "text-padding": 3,
+            },
+            paint: {
+              "text-color": ACOPIOS_COLOR,
+              "text-halo-color": "#0b1120",
+              "text-halo-width": 1.4,
             },
           },
         ],
