@@ -18,8 +18,8 @@ import {
 import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
 import { maquinaDe, type TipoMaquina } from "@/lib/tractores";
-import { puestoDe } from "@/lib/puestos";
-import { antenaHTML, markerHTML } from "@/lib/icons";
+import { puestoDe, PUESTOS_SIN_NODO } from "@/lib/puestos";
+import { antenaHTML, markerHTML, puestoHTML } from "@/lib/icons";
 import {
   COLOR_RED,
   enlacesDeclarados,
@@ -305,6 +305,7 @@ export default function MapGL({
   const markerRef = useRef<Map<string, Marker>>(new Map());
   const replayRef = useRef<Map<string, Marker>>(new Map());
   const redRef = useRef<Map<string, Marker>>(new Map());
+  const puestoRef = useRef<Map<string, Marker>>(new Map());
   // Handlers frescos sin recrear el mapa.
   const cbRef = useRef({ onSelect, onOpenMachine, onMap });
   cbRef.current = { onSelect, onOpenMachine, onMap };
@@ -705,6 +706,7 @@ export default function MapGL({
       markerRef.current.clear();
       replayRef.current.clear();
       redRef.current.clear();
+      puestoRef.current.clear();
     };
   }, []);
 
@@ -758,6 +760,28 @@ export default function MapGL({
       }
     });
   }, [sitios, whenReady]);
+
+  // --- Puestos declarados sin nodo ---
+  // Son instalación, no telemetría: se pintan una sola vez y en los dos modos,
+  // igual que las antenas. No dependen de la flota porque no hay aparato que
+  // reporte — su coordenada está escrita en lib/puestos.ts.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    for (const p of PUESTOS_SIN_NODO) {
+      if (puestoRef.current.has(p.codigo)) continue;
+      const el = document.createElement("div");
+      el.className = "machine-marker";
+      el.innerHTML = puestoHTML({ color: p.color, codigo: p.codigo });
+      el.title = `${p.nombre} · ${p.codigo}
+Puesto fijo (sin nodo)`;
+      const mk = new Marker({ element: el, anchor: "center" })
+        .setLngLat([p.lon, p.lat])
+        .addTo(map);
+      puestoRef.current.set(p.codigo, mk);
+    }
+  }, [whenReady]);
 
   // --- Rastros y extremos ---
   useEffect(() => {

@@ -198,3 +198,18 @@ export function antenaHTML(opts: {
     <span class="ant-label">${esc(opts.sitio)}</span>
   </div>`;
 }
+
+/**
+ * HTML del marcador de un puesto declarado sin nodo (ver `PUESTOS_SIN_NODO` en
+ * lib/puestos.ts): ícono + etiqueta, sin anillo de estado.
+ *
+ * El anillo se omite a propósito. En los demás marcadores dice qué tan fresco
+ * es el dato del aparato, y aquí no hay aparato: pintarlo de cualquier color
+ * afirmaría un estado que nadie midió.
+ */
+export function puestoHTML(opts: { color: string; codigo: string }): string {
+  return `<div class="mk">
+    ${machineSVG("porteria", opts.color)}
+    <span class="mk-label">${esc(opts.codigo)}</span>
+  </div>`;
+}

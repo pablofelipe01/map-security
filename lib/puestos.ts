@@ -35,13 +35,14 @@ export interface Puesto {
 /**
  * Los puestos, por node_id.
  *
- * Portería: 4°28'52.78"N 72°57'06.08"W, convertido a grados decimales
+ * Control 1 (la portería de entrada): 4°28'52.78"N 72°57'06.08"W, convertido
+ * a grados decimales
  * (4 + 28/60 + 52.78/3600 y 72 + 57/60 + 6.08/3600, negativo por ser W).
  */
 export const PUESTOS: Record<string, Puesto> = {
   "!2f3f6694": {
-    nombre: "Portería",
-    codigo: "PORT",
+    nombre: "Control 1",
+    codigo: "C1",
     lat: 4.481328,
     lon: -72.951689,
     color: "#7b4fd0",
@@ -57,3 +58,26 @@ export function puestoDe(nodeId: string): Puesto | null {
 export function esPuesto(nodeId: string): boolean {
   return nodeId in PUESTOS;
 }
+
+/**
+ * Puestos declarados SIN nodo: sitios que existen en campo pero todavía no
+ * tienen un aparato de la malla instalado.
+ *
+ * Los de arriba se dibujan porque su nodo aparece en la flota; estos no tienen
+ * a qué colgarse, así que el mapa los pinta por su cuenta —igual que las
+ * antenas: son instalación, no telemetría— y salen en los dos modos, en vivo e
+ * histórico. No llevan estado ni anillo porque no hay nada que reportar: dicen
+ * dónde está el puesto, no cómo está.
+ *
+ * Control 3: 4°32'39.54"N 72°57'28.66"W en grados decimales
+ * (4 + 32/60 + 39.54/3600 y 72 + 57/60 + 28.66/3600, negativo por ser W).
+ */
+export const PUESTOS_SIN_NODO: Puesto[] = [
+  {
+    nombre: "Control 3",
+    codigo: "C3",
+    lat: 4.544317,
+    lon: -72.957961,
+    color: "#7b4fd0",
+  },
+];

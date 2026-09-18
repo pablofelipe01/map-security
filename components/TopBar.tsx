@@ -43,7 +43,17 @@ export default function TopBar({
   const hoy = todayLocal();
 
   return (
-    <header className="relative z-[1200] flex h-[76px] items-center gap-5 border-b border-border bg-surface px-5">
+    /*
+     * Móvil primero: en un celular los seis bloques de esta barra no caben en
+     * una fila, así que se deja envolver y los chips de flota bajan a su propio
+     * renglón (`basis-full`). Desde `md` se restaura la fila única de 76 px de
+     * siempre — de ahí que cada ajuste móvil tenga su `md:` que lo deshace.
+     *
+     * El `padding-top` respeta la muesca: con `viewportFit: "cover"` (ver
+     * app/layout.tsx) la página se pinta bajo la barra de estado, y sin esto el
+     * logo quedaría debajo del reloj del sistema.
+     */
+    <header className="relative z-[1200] flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:h-[76px] md:flex-nowrap md:gap-5 md:px-5 md:py-0">
       {/* Marca */}
       <div className="flex shrink-0 items-center gap-2.5">
         <Image
@@ -66,7 +76,7 @@ export default function TopBar({
           <button
             key={m}
             onClick={() => onMode(m)}
-            className={`rounded-full px-[22px] py-[10px] text-xs font-bold tracking-[1.5px] transition ${
+            className={`grid min-h-11 place-items-center rounded-full px-4 text-xs font-bold tracking-[1.5px] transition md:min-h-0 md:px-[22px] md:py-[10px] ${
               mode === m
                 ? "bg-accent text-white shadow-card"
                 : "bg-transparent text-ink-2 hover:text-ink"
@@ -83,7 +93,7 @@ export default function TopBar({
           <button
             onClick={() => onDate(shiftDay(date, -1))}
             title="Día anterior"
-            className="h-[38px] w-[38px] rounded-[10px] border border-border bg-surface text-lg leading-none text-ink-2 hover:border-accent-2 hover:text-accent"
+            className="h-11 w-11 rounded-[10px] border border-border bg-surface text-lg leading-none text-ink-2 hover:border-accent-2 hover:text-accent md:h-[38px] md:w-[38px]"
           >
             ‹
           </button>
@@ -92,13 +102,13 @@ export default function TopBar({
             value={date}
             max={hoy}
             onChange={(e) => e.target.value && onDate(e.target.value)}
-            className="rounded-[10px] border border-border bg-surface px-3 py-[9px] font-mono text-[13.5px] text-ink"
+            className="h-11 rounded-[10px] border border-border bg-surface px-3 font-mono text-[13.5px] text-ink md:h-auto md:py-[9px]"
           />
           <button
             onClick={() => onDate(shiftDay(date, 1))}
             disabled={date >= hoy}
             title="Día siguiente"
-            className="h-[38px] w-[38px] rounded-[10px] border border-border bg-surface text-lg leading-none text-ink-2 hover:border-accent-2 hover:text-accent disabled:opacity-35"
+            className="h-11 w-11 rounded-[10px] border border-border bg-surface text-lg leading-none text-ink-2 hover:border-accent-2 hover:text-accent disabled:opacity-35 md:h-[38px] md:w-[38px]"
           >
             ›
           </button>
@@ -109,7 +119,7 @@ export default function TopBar({
       <Frescura latido={latidoPoller} caidoMin={POLLER_CAIDO_MIN} />
 
       {/* Chips de la flota */}
-      <div className="ml-auto flex min-w-0 gap-2 overflow-x-auto [scrollbar-width:none]">
+      <div className="order-last flex basis-full gap-2 overflow-x-auto [scrollbar-width:none] md:order-none md:ml-auto md:min-w-0 md:basis-auto">
         {items.map((i) => {
           const maq = maquinaDe(
             i.node.node_id,
@@ -122,7 +132,7 @@ export default function TopBar({
               key={i.node.node_id}
               onClick={() => onSelect(i.node.node_id)}
               title={ESTADO_META[i.estado].ayuda}
-              className={`flex shrink-0 items-center gap-2 rounded-full border py-2 pl-[11px] pr-[15px] text-[12.5px] font-semibold transition ${
+              className={`flex min-h-11 shrink-0 items-center gap-2 rounded-full border pl-[11px] pr-[15px] text-[12.5px] font-semibold transition md:min-h-0 md:py-2 ${
                 sel
                   ? "border-accent bg-[#eaf2fb] text-accent"
                   : "border-border bg-surface text-ink-2 hover:border-accent-2 hover:text-ink"
@@ -187,8 +197,15 @@ function Frescura({
   const caido = edad != null && edad > caidoMin;
 
   if (caido) {
+    // Esta advertencia NO se esconde en móvil, al revés que el estado normal de
+    // abajo. Que el poller lleve rato sin correr significa que ninguna posición
+    // en pantalla es actual, y el celular es justamente el aparato que se mira
+    // en campo, parado al lado de un lote, decidiendo si el tractor que marca el
+    // mapa sigue ahí. Ocultarla por falta de espacio convertiría la pantalla
+    // pequeña en la más engañosa de todas. Ocupa su propio renglón completo
+    // (`basis-full`) para que quepa entera sin competir con nada.
     return (
-      <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-st-alerta/40 bg-[#fdf0f0] px-3.5 py-2 text-[11.5px] font-semibold text-st-alerta md:flex">
+      <span className="order-last flex basis-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-st-alerta/40 bg-[#fdf0f0] px-3.5 py-2 text-center text-[11.5px] font-semibold text-st-alerta md:order-none md:basis-auto md:justify-start md:text-left">
         Poller sin correr {fmtEdad(edad)} — ningún dato es actual
       </span>
     );

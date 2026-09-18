@@ -79,6 +79,22 @@ export default function Page() {
   const [date, setDate] = useState<string>(todayLocal());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+
+  /**
+   * En celular el panel se abre plegado. Mide 332 px y el teléfono tiene ~390:
+   * abierto no deja ver el mapa, que es el producto — alguien parado al lado de
+   * un lote quiere ver DÓNDE está la máquina, y la lista la pide después. En
+   * escritorio sigue abierto como siempre, que es donde hay ancho para los dos.
+   *
+   * Se decide en un efecto y no en el `useState` de arriba a propósito: esta
+   * página se prerenderiza, y leer `window` al construir el estado haría que el
+   * servidor dijera "abierto" y el cliente "cerrado" — un error de hidratación.
+   * Al correr después del montaje, el primer pintado coincide y el panel se
+   * pliega enseguida.
+   */
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 767px)").matches) setPanelOpen(false);
+  }, []);
   const [fitToken, setFitToken] = useState(0);
 
   // Instancia del mapa, para que el exportador de video pueda capturar su
@@ -479,7 +495,7 @@ export default function Page() {
 
   if (nodoAbierto) {
     return (
-      <main className="h-screen w-screen overflow-hidden">
+      <main className="h-dvh w-full overflow-hidden">
         <MachineView
           node={nodoAbierto}
           fecha={hashFecha ?? undefined}
@@ -510,7 +526,12 @@ export default function Page() {
     !fleet?.some((f) => f.posicion);
 
   return (
-    <main className="flex h-screen w-screen flex-col overflow-hidden">
+    // `h-dvh` y no `h-screen`: en móvil `100vh` mide la pantalla CON la barra de
+    // URL desplegada, así que el último tramo de la interfaz —la ReplayBar, que
+    // va abajo— queda tapado hasta que el usuario hace scroll, y aquí no hay
+    // scroll. `w-full` en vez de `w-screen` porque `100vw` incluye el ancho de
+    // la barra de desplazamiento y provoca un desborde horizontal de pocos px.
+    <main className="flex h-dvh w-full flex-col overflow-hidden">
       <TopBar
         mode={mode}
         onMode={setMode}

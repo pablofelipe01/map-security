@@ -83,17 +83,28 @@ interface Props {
 export default function SidePanel(p: Props) {
   return (
     <aside
-      className={`absolute bottom-3.5 right-3.5 top-3.5 z-[1000] flex w-[332px] max-w-[calc(100vw-28px)] flex-col rounded-card border border-border bg-white/95 shadow-card backdrop-blur-md transition-transform ${
+      // `bottom` respeta la barra de gestos de iOS/Android: sin el inset, el
+      // último renglón del panel queda debajo de la franja del sistema y no se
+      // puede ni leer ni tocar.
+      className={`absolute bottom-[max(0.875rem,env(safe-area-inset-bottom))] right-3.5 top-3.5 z-[1000] flex w-[332px] max-w-[calc(100vw-28px)] flex-col rounded-card border border-border bg-white/95 shadow-card backdrop-blur-md transition-transform ${
         p.open ? "" : "translate-x-[calc(100%+14px)]"
       }`}
     >
       <button
         onClick={p.onToggle}
         title="Mostrar / ocultar panel"
-        className={`absolute top-3.5 h-11 w-[30px] border border-border bg-white/95 text-[15px] text-ink-2 ${
+        // 44 px de ancho en táctil y no 30: en celular este tirador es la única
+        // forma de traer el panel de vuelta —arranca plegado— así que fallar el
+        // toque deja al usuario sin forma visible de abrirlo.
+        //
+        // Y baja a 112 px en móvil porque al ensancharlo se montó encima de los
+        // controles de zoom de MapLibre, que en táctil también crecieron a 44 px
+        // y ocupan la esquina superior derecha hasta ~100 px. En escritorio
+        // siguen siendo de 30 y no se tocan, así que ahí vuelve a `top-3.5`.
+        className={`absolute top-28 h-11 w-11 border border-border bg-white/95 text-[15px] text-ink-2 md:top-3.5 md:w-[30px] ${
           p.open
-            ? "-left-[30px] rounded-l-[10px] border-r-0"
-            : "-left-[30px] rotate-180 rounded-r-[10px] border-l-0"
+            ? "-left-11 rounded-l-[10px] border-r-0 md:-left-[30px]"
+            : "-left-11 rotate-180 rounded-r-[10px] border-l-0 md:-left-[30px]"
         }`}
       >
         ‹
@@ -998,7 +1009,7 @@ function BotonVideo({
           : "Descargar el recorrido como video"
       }
       aria-label="Descargar el recorrido como video"
-      className="shrink-0 rounded-lg p-1.5 text-ink-3 transition hover:bg-white hover:text-accent disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-ink-3"
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-ink-3 transition hover:bg-white hover:text-accent disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-ink-3 md:h-auto md:w-auto md:p-1.5"
     >
       <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true">
         <rect

@@ -317,6 +317,70 @@ input[type="range"].replay::-moz-range-thumb {
   cursor: pointer;
 }
 
+/* En pantalla tactil el pulgar de 18px es mas chico que la yema de un dedo:
+   agarrarlo exige apuntar, y en el campo se hace con una sola mano. Se agranda
+   y se le da mas alto de pista para que el area de toque sea real. El tope es
+   `pointer: coarse` y no un breakpoint de ancho: lo que decide es como se
+   toca la pantalla, no cuanto mide — una tablet grande con dedo tambien lo
+   necesita, y un monitor tactil de escritorio igual. */
+/* ---- Objetivos tactiles ----
+   Todo lo que sigue se activa por `pointer: coarse`, no por ancho de pantalla:
+   lo que decide si un boton es demasiado chico es que se toque con el dedo, no
+   cuantos pixeles mide la ventana. Una tablet grande o un monitor tactil lo
+   necesitan igual, y un escritorio angosto no. */
+@media (pointer: coarse) {
+  /* "Registro" y el boton de recargar del panel son texto suelto de ~16 px de
+     alto; el ↻ llega a medir 10 px de ancho. Se les da area de toque sin
+     cambiar como se ven: el texto queda igual, crece la zona sensible. */
+  .back-link {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-grid;
+    place-items: center;
+    padding-inline: 6px;
+  }
+
+  /* Los controles de zoom los deja el tema en 30 px (ver la regla de arriba, la
+     que los ajusta al borde redondeado). No se pueden tocar con guante, y en
+     campo se anda con guante. Lleva `!important` porque esa regla también lo
+     lleva: sin él, 30 px gana por especificidad aunque esto venga después. */
+  .maplibregl-ctrl-group button {
+    width: 44px !important;
+    height: 44px !important;
+  }
+}
+
+@media (pointer: coarse) {
+  /* El elemento crece a 44 px de alto —el area que hay que acertar con el
+     dedo— pero la pista se sigue viendo fina: el fondo pasa del input a
+     ::-...-track, que es lo unico que se pinta. Sin este desdoble, subir el
+     alto engordaria la barra hasta parecer otra cosa. */
+  input[type="range"].replay {
+    height: 44px;
+    background: transparent;
+  }
+  input[type="range"].replay::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 9999px;
+    background: var(--border);
+  }
+  input[type="range"].replay::-moz-range-track {
+    height: 10px;
+    border-radius: 9999px;
+    background: var(--border);
+  }
+  input[type="range"].replay::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    /* (alto de pista - alto del pulgar) / 2, para centrarlo sobre la pista. */
+    margin-top: -9px;
+  }
+  input[type="range"].replay::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
+}
+
 /* ---- Nodos fijos de la red mesh ----
    Mismo patrón que `.mk` (ícono + anillo + etiqueta) pero más pequeño y sin
    pulso: una antena no se mueve y no tiene por qué llamar la atención por

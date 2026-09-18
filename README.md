@@ -98,6 +98,38 @@ navegador de escritorio o móvil actual esto no es un problema.
 El precio de no usar Google Maps es que no hay 3D fotorrealista, que para
 supervisar labores no aporta nada.
 
+### Uso en celular
+
+La app se diseñó para escritorio, pero se consulta en campo desde el teléfono.
+El CSS es **móvil primero con `md:` para restaurar el escritorio**: cada ajuste
+de pantalla chica trae su `md:` que lo deshace, de modo que la vista de
+escritorio —fila de 76 px, panel de 332 px— quede exactamente como estaba.
+
+Cuatro decisiones que no son cosméticas:
+
+- **`export const viewport` en `app/layout.tsx`.** Sin esa meta, un navegador
+  móvil asume página de escritorio, renderiza a ~980 px virtuales y encoge todo;
+  las media queries se evalúan contra esos 980 px y no entran nunca. Es el
+  cimiento: sin esto, ningún otro ajuste se nota. No se bloquea el zoom
+  (`maximumScale`), que sería una barrera de accesibilidad justo donde más
+  falta hace: con sol, guantes o vista cansada.
+- **`h-dvh` y no `h-screen`.** `100vh` mide la pantalla con la barra de URL
+  desplegada, así que la ReplayBar —que va abajo— quedaba cortada.
+- **El panel arranca plegado en móvil.** Mide 332 px sobre una pantalla de ~390:
+  abierto no deja ver el mapa, que es el producto. Se decide en un efecto y no
+  en el `useState`, porque la página se prerenderiza y leer `window` al construir
+  el estado da error de hidratación.
+- **La alerta de "ningún dato es actual" ya no se esconde en móvil.** Estaba en
+  `hidden md:flex`, o sea invisible justo en el aparato que se usa parado al
+  lado de un lote. Ocultarla por falta de espacio hacía de la pantalla chica la
+  más engañosa de todas.
+
+Los objetivos táctiles (44 px) se activan con `@media (pointer: coarse)` y no
+con un breakpoint de ancho: lo que decide es cómo se toca la pantalla, no cuánto
+mide. Cubre también tablets grandes y monitores táctiles. Ojo con los controles
+de MapLibre: el tema ya los fija con `!important`, así que la regla táctil tiene
+que llevarlo también.
+
 ### Capa de vías de Guaicaramo
 
 El mapa **siempre** superpone la malla vial del predio sobre el satélite: sin
