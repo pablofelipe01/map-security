@@ -310,11 +310,16 @@ El estado y la hora del último fix **sí** siguen siendo del nodo: sirven para
 saber si el aparato está vivo. Si una portería se traslada, hay que corregir la
 coordenada aquí — el nodo no lo va a avisar.
 
-### Red mesh — los 7 nodos fijos
+### Red mesh — los nodos fijos
 
 Las antenas del predio se leen de Supabase (`mesh_sites` → `v_mesh_health`) y se
 dibujan siempre —en los dos modos— con ícono de antena, el nombre del sitio y una
-línea punteada al gateway rotulada con la distancia.
+línea punteada al gateway rotulada con la distancia. Hoy son **8**: los 7 del
+acta de instalación de abril más la del laboratorio, agregada después.
+
+El conteo no está en ninguna parte del código: el mapa dibuja las filas que
+devuelva `mesh_sites`. Dar de alta una antena es un INSERT en
+`supabase/mesh-sitios.local.sql`, no un despliegue.
 
 ⚠️ **Las coordenadas no van en el código ni en el repositorio.** La ubicación de
 las antenas es infraestructura de seguridad, y este repositorio es público:
@@ -365,6 +370,13 @@ El estado sale de `v_mesh_health` y son cuatro:
 Los umbrales viven en la vista, no en la app, para poder calibrarlos sin
 desplegar. El precio es que la base puede devolver un estado que la app todavía
 no conozca: `metaDe()` cae a "sin datos" en vez de romper el mapa.
+
+**El estado no se escribe: se calcula.** No hay columna que decir "esta antena
+está caída"; `v_mesh_health` lo deduce de los sondeos y anuncios que haya. Por
+eso una antena recién dada de alta sin `node_id` —el hex del radio todavía sin
+leer en el nodeDB— sale en gris sola: no hay a quién sondear, así que no hay
+nada que reportar. Es el caso de la del laboratorio. Cuando se confirme el hex,
+un `update` de esa columna basta para que el pin empiece a cambiar de color.
 
 Si la consulta falla, el mapa no dibuja antenas: no hay lista de respaldo en el
 código, a propósito.
