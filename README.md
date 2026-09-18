@@ -346,41 +346,14 @@ coordenada aquí — el nodo no lo va a avisar.
 
 Las antenas del predio se leen de Supabase (`mesh_sites` → `v_mesh_health`) y se
 dibujan siempre —en los dos modos— con ícono de antena, el nombre del sitio y una
-línea punteada al gateway rotulada con la distancia. Hoy son **8**: los 7 del
-acta de instalación de abril más la del laboratorio, agregada después.
+línea punteada al gateway rotulada con la distancia.
 
 El conteo no está en ninguna parte del código: el mapa dibuja las filas que
-devuelva `mesh_sites`. Dar de alta una antena es un INSERT en
-`supabase/mesh-sitios.local.sql`, no un despliegue.
-
-#### Antenas que todavía no están en la base
-
-Mientras nadie corra ese INSERT, el sitio no existe para la app. Para verlo en
-el mapa entre tanto hay una salida de emergencia: la variable de entorno
-`NEXT_PUBLIC_ANTENAS_EXTRA`, una lista JSON que `antenasDelEntorno()` convierte
-en sitios como los de la base.
-
-```
-NEXT_PUBLIC_ANTENAS_EXTRA=[{"site_id":"x","site_name":"X","role":"repetidor","lat":0,"lon":0}]
-```
-
-**Esto no debilita la regla de arriba.** Lo que no puede pasar es que una
-coordenada quede escrita en el *repositorio*, que es público, permanente e
-indexable por cualquiera sin siquiera conocer la app. La variable vive en
-`.env.local` —ignorado por git— o en las variables del despliegue. Que el valor
-acabe en el bundle no agrega exposición: el bundle ya recibe las coordenadas de
-todas las antenas, porque `v_mesh_health` se lee con la anon key, que también
-viaja en él. `.env.example` lleva el formato con ceros, nunca la coordenada real.
-
-Lo que sí cuesta: **es una segunda fuente de verdad**. Una antena declarada así
-no se corrige con un UPDATE — hay que tocar el entorno y volver a desplegar, que
-es justo lo que el diseño quería evitar. Por eso es un puente, no un destino: en
-cuanto el sitio exista en `mesh_sites`, la fila de la base manda
-(`fusionarSitios`) y la variable se puede borrar sin que cambie nada en pantalla.
-
-Se pintan siempre en **gris, `sin_datos`**. Sin sondeos no hay nada que afirmar
-sobre el enlace, y es el mismo estado al que `v_mesh_health` llega solo para un
-sitio que aún no se ha sondeado.
+devuelva `mesh_sites`, y hoy son las 7 del acta de instalación de abril. **Dar
+de alta una antena es un INSERT, no un despliegue** — y mientras ese INSERT no
+se corra, la antena no existe para la app, ni en local ni en producción. La
+semilla y las altas posteriores viven en `supabase/mesh-sitios.local.sql`, que
+no va a git; se pegan en el SQL Editor de Supabase.
 
 ⚠️ **Las coordenadas no van en el código ni en el repositorio.** La ubicación de
 las antenas es infraestructura de seguridad, y este repositorio es público:

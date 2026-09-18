@@ -17,7 +17,7 @@ import {
   fetchEstadiasDay,
   fetchRedMesh,
 } from "@/lib/queries";
-import { antenasDelEntorno, fusionarSitios, type SitioRed } from "@/lib/red";
+import type { SitioRed } from "@/lib/red";
 import { estaDadoDeBaja } from "@/lib/bajas";
 import { computeStats, enrichTrack, fmtTime } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
@@ -157,21 +157,11 @@ export default function Page() {
   // máquinas. No hay lista de respaldo en el código: si la consulta falla, se
   // conserva lo último que sí respondió y nada más.
   const recargarRed = useCallback(async () => {
-    // Las antenas declaradas en el entorno son justamente las que todavía no
-    // están en `mesh_sites`, así que se pintan pase lo que pase con la consulta
-    // —incluso sin Supabase configurado—. Al fusionar, la base manda.
-    const extra = antenasDelEntorno();
-    if (!SUPABASE_READY) {
-      setSitios(extra);
-      return;
-    }
+    if (!SUPABASE_READY) return;
     try {
-      setSitios(fusionarSitios(await fetchRedMesh(), extra));
+      setSitios(await fetchRedMesh());
     } catch (e) {
       console.warn("[red] no se pudo leer el estado de la malla", e);
-      // Funcional y no `setSitios(extra)`: un fallo puntual del poller no puede
-      // borrar las antenas que ya se habían leído bien.
-      setSitios((prev) => fusionarSitios(prev, extra));
     }
   }, []);
 
