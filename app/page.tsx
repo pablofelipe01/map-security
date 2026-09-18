@@ -17,7 +17,7 @@ import {
   fetchEstadiasDay,
   fetchRedMesh,
 } from "@/lib/queries";
-import type { SitioRed } from "@/lib/red";
+import { antenasDelEntorno, fusionarSitios, type SitioRed } from "@/lib/red";
 import { estaDadoDeBaja } from "@/lib/bajas";
 import { computeStats, enrichTrack, fmtTime } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
@@ -138,13 +138,24 @@ export default function Page() {
 
   // Igual que el registro de flota: la red va por su lado y su error no llega
   // al banner. Que las tablas de la malla no existan no puede dejar el mapa sin
-  // máquinas — y al fallar se queda el respaldo, que al menos ubica las antenas.
+  // máquinas. No hay lista de respaldo en el código: si la consulta falla, se
+  // conserva lo último que sí respondió y nada más.
   const recargarRed = useCallback(async () => {
-    if (!SUPABASE_READY) return;
+    // Las antenas declaradas en el entorno son justamente las que todavía no
+    // están en `mesh_sites`, así que se pintan pase lo que pase con la consulta
+    // —incluso sin Supabase configurado—. Al fusionar, la base manda.
+    const extra = antenasDelEntorno();
+    if (!SUPABASE_READY) {
+      setSitios(extra);
+      return;
+    }
     try {
-      setSitios(await fetchRedMesh());
+      setSitios(fusionarSitios(await fetchRedMesh(), extra));
     } catch (e) {
       console.warn("[red] no se pudo leer el estado de la malla", e);
+      // Funcional y no `setSitios(extra)`: un fallo puntual del poller no puede
+      // borrar las antenas que ya se habían leído bien.
+      setSitios((prev) => fusionarSitios(prev, extra));
     }
   }, []);
 
