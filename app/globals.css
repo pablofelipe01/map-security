@@ -97,6 +97,33 @@ body {
   .back-link {
     @apply text-accent text-xs font-bold bg-transparent border-0 p-0 hover:text-accent-2;
   }
+  /* Boton de accion EN LINEA. `.btn` es `block w-full` a proposito —en un
+     dialogo se quiere asi— pero dentro de un renglon (la barra de despacho, la
+     fila de una parada) ese ancho completo se come la linea y parte en dos el
+     texto que va al lado. Esto es la misma piel de `.btn-ghost` a la medida de
+     su contenido. */
+  .btn-chip {
+    @apply inline-flex shrink-0 items-center justify-center gap-1 whitespace-nowrap
+      rounded-[9px] border-[1.5px] border-border bg-surface px-2.5 py-1
+      text-[11px] font-bold leading-none text-ink-2 transition;
+    min-height: 28px;
+  }
+  .btn-chip:hover {
+    @apply border-accent-2 text-accent;
+  }
+  .btn-chip:disabled {
+    @apply opacity-40;
+  }
+  /* El chip que propone el siguiente paso (despachar, completar): lleno, para
+     que se distinga de un vistazo del que solo abre algo. El color lo pone
+     quien lo usa, porque aqui el color es de estado y no de marca. */
+  .btn-chip-solid {
+    @apply border-transparent bg-accent text-white;
+  }
+  .btn-chip-solid:hover {
+    @apply border-transparent text-white;
+    filter: brightness(1.15);
+  }
   .kv {
     @apply flex justify-between gap-3 py-[7px] border-b border-border text-[12.5px];
   }
@@ -373,6 +400,15 @@ input[type="range"].replay::-moz-range-thumb {
     display: inline-grid;
     place-items: center;
     padding-inline: 6px;
+  }
+
+  /* El chip mide 28 px de alto, que con el dedo es apuntar. Crece a 36 y no a
+     44 porque van varios por fila en la lista de paradas: a 44 la lista de una
+     ruta de ocho acopios deja de caber en pantalla, y un renglon que toca
+     desplazar se acierta peor que un boton dos pixeles mas chico. */
+  .btn-chip {
+    min-height: 36px;
+    @apply px-3;
   }
 
   /* Los controles de zoom los deja el tema en 30 px (ver la regla de arriba, la

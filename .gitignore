@@ -26,3 +26,5 @@ npm-debug.log*
 # y de los puestos fijos. El repositorio es público; estos archivos se pegan a
 # mano en el SQL Editor de Supabase.
 *.local.sql
+supabase/acopios-datos.sql
+/supabase

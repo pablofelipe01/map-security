@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FleetItem } from "@/lib/types";
 import {
@@ -86,6 +87,22 @@ export default function TopBar({
           </button>
         ))}
       </div>
+
+      {/*
+        Entrada al despacho. Va pegada al selector de modo pero fuera de él a
+        propósito: EN VIVO e HISTÓRICO son dos maneras de mirar lo mismo, y el
+        despacho es otra cosa —decidir en vez de observar—. Meterlo como un
+        tercer botón del grupo diría que es un tercer modo de la torre, y el
+        primer clic de alguien buscando "el histórico" caería en una pantalla
+        donde se reasignan tractores.
+      */}
+      <Link
+        href="/despacho"
+        title="Planear a qué acopios va cada máquina"
+        className="grid min-h-11 shrink-0 place-items-center rounded-full border border-border bg-surface px-4 text-xs font-bold tracking-[1.5px] text-ink-2 transition hover:border-accent-2 hover:text-accent md:min-h-0 md:py-[10px]"
+      >
+        DESPACHO
+      </Link>
 
       {/* Día (sólo histórico) */}
       {mode === "history" && (

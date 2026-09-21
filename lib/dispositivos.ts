@@ -41,9 +41,23 @@ export interface Dispositivo {
  *
  * Verde Alegría (#00b602) es color de marca y hoy no lo usa ninguna máquina
  * registrada, así que el Wio se lee de inmediato entre los azules de la flota.
+ *
+ * Los Wio comparten color a propósito: el verde dice "esto es un Wio", no "esta
+ * es tal máquina". Entre sí se separan por el código de la etiqueta (GUA1 /
+ * GUA2), que es el dato con el que la gente los nombra en campo. Si algún día
+ * son tantos que hay que distinguirlos por color, el que tiene que cambiar es
+ * el criterio completo, no colarle un verde distinto a uno.
  */
 export const DISPOSITIVOS: Record<string, Dispositivo> = {
+  // Guaica1
   "!43462e94": {
+    etiqueta: "Wio Tracker",
+    color: "#00b602",
+    nota: "Rastreador con GPS y batería propios, no un radio de cabina.",
+  },
+  // Guaica2 — dado de alta el 21-sep-2026, id confirmado contra la tabla
+  // `nodes` de Supabase (no contra el nombre: el nombre se renombra).
+  "!f515b946": {
     etiqueta: "Wio Tracker",
     color: "#00b602",
     nota: "Rastreador con GPS y batería propios, no un radio de cabina.",

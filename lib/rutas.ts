@@ -539,15 +539,23 @@ const aPlano = ([lat, lon]: [number, number]): Punto => [lon * M_LON, lat * M_LA
 const cache = new Map<string, Tramo>();
 const CACHE_MAX = 20_000;
 
-function clave(a: [number, number], b: [number, number]) {
-  return `${a[0].toFixed(5)},${a[1].toFixed(5)}>${b[0].toFixed(5)},${b[1].toFixed(5)}`;
+function clave(a: [number, number], b: [number, number], radio: number) {
+  return `${a[0].toFixed(5)},${a[1].toFixed(5)}>${b[0].toFixed(5)},${b[1].toFixed(5)}@${radio}`;
 }
 
-/** Resuelve un solo tramo entre dos fixes consecutivos. */
+/**
+ * Resuelve un solo tramo entre dos fixes consecutivos.
+ *
+ * `radio` es hasta dónde se busca una vía para anclar cada extremo. Por defecto
+ * es `RADIO_SNAP_M` (35 m), que es el que corresponde cuando se está
+ * reconstruyendo un recorrido medido. La planeación lo abre a propósito; el
+ * porqué está en `lib/planeacion.ts`.
+ */
 function rutearTramo(
   g: Grafo,
   a: [number, number],
-  b: [number, number]
+  b: [number, number],
+  radio: number = RADIO_SNAP_M
 ): Tramo {
   const pa = aPlano(a);
   const pb = aPlano(b);
@@ -556,8 +564,8 @@ function rutearTramo(
   // Quieto: rutear ruido del GPS sólo produciría zigzag sobre la vía.
   if (recta < MIN_TRAMO_M) return tramoRecto(a, b);
 
-  const anclaA = anclar(g, pa, RADIO_SNAP_M);
-  const anclaB = anclar(g, pb, RADIO_SNAP_M);
+  const anclaA = anclar(g, pa, radio);
+  const anclaB = anclar(g, pb, radio);
   // Alguno de los dos no está sobre una vía: el tractor está dentro del lote.
   if (!anclaA || !anclaB) return tramoRecto(a, b);
 
@@ -615,15 +623,19 @@ function largoDe(pts: [number, number][]): number {
  * exactamente `latlngs.length - 1` tramos. Esa correspondencia uno a uno es la
  * que le permite al replay saber en qué tramo está la máquina a cada minuto.
  */
-export function rutearRastro(g: Grafo, latlngs: [number, number][]): Tramo[] {
+export function rutearRastro(
+  g: Grafo,
+  latlngs: [number, number][],
+  radio: number = RADIO_SNAP_M
+): Tramo[] {
   const out: Tramo[] = [];
   for (let i = 1; i < latlngs.length; i++) {
     const a = latlngs[i - 1];
     const b = latlngs[i];
-    const k = clave(a, b);
+    const k = clave(a, b, radio);
     let tramo = cache.get(k);
     if (!tramo) {
-      tramo = rutearTramo(g, a, b);
+      tramo = rutearTramo(g, a, b, radio);
       // Vaciado brusco en vez de LRU: son datos derivados y baratos de recalcular,
       // y un día completo de la flota cabe de sobra antes del tope.
       if (cache.size >= CACHE_MAX) cache.clear();

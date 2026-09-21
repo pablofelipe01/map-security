@@ -383,19 +383,26 @@ fuente no es de esta app:
 
 ### Nodos con aparato distinto (Wio Tracker)
 
-No todos los nodos son el mismo aparato. `!43462e94` (**Guaica1 · GUA1**) no es
-un radio Meshtastic de cabina sino un **Wio Tracker**: rastreador con GPS y
-batería propios. Sigue montado en un tractor —el ícono del mapa no cambia— pero
-reporta, se carga y se diagnostica distinto, así que el mapa lo distingue.
+No todos los nodos son el mismo aparato. `!43462e94` (**Guaica1**) y `!f515b946`
+(**Guaica2**) no son radios Meshtastic de cabina sino **Wio Tracker**:
+rastreadores con GPS y batería propios. Siguen montados en tractores —el ícono
+del mapa no cambia— pero reportan, se cargan y se diagnostican distinto, así que
+el mapa los distingue.
 
 Eso se declara a mano en **`lib/dispositivos.ts`**, junto a `lib/puestos.ts` y
 al respaldo de `lib/tractores.ts`:
 
 ```ts
 export const DISPOSITIVOS: Record<string, Dispositivo> = {
-  "!43462e94": { etiqueta: "Wio Tracker", color: "#00b602", nota: "…" },
+  "!43462e94": { etiqueta: "Wio Tracker", color: "#00b602", nota: "…" }, // Guaica1
+  "!f515b946": { etiqueta: "Wio Tracker", color: "#00b602", nota: "…" }, // Guaica2
 };
 ```
+
+Se indexa por `node_id` y no por nombre porque el nombre se renombra desde el
+registro de flota y el hex no cambia nunca. Varios Wio comparten verde a
+propósito: el color dice "esto es un Wio", y entre sí se separan por el código de
+la etiqueta (GUA1 / GUA2).
 
 Un nodo listado ahí cambia en dos cosas:
 
