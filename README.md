@@ -74,6 +74,11 @@ npm run dev          # http://localhost:3000
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ ya configurada |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ ya configurada (anon, solo lectura) |
+| `AIRTABLE_GUAICARAMO_VISITAS_API_KEY` | opcional — registros de ingreso de la portería (ver abajo) |
+
+La de Airtable **no** lleva `NEXT_PUBLIC_`: es un token con permiso de escritura
+sobre datos de personas y se queda en el servidor. Sin ella la app funciona
+igual; la ficha de la portería avisa que falta en vez de callarse.
 
 **No hace falta API key de mapas.** Se usa MapLibre GL JS con teselas de *Esri
 World Imagery*, que no piden clave ni facturación: la app no puede quedarse en
@@ -342,6 +347,40 @@ El estado y la hora del último fix **sí** siguen siendo del nodo: sirven para
 saber si el aparato está vivo. Si una portería se traslada, hay que corregir la
 coordenada aquí — el nodo no lo va a avisar.
 
+### Los ingresos de la portería (Airtable)
+
+Control 1 no es una máquina: es la portería de entrada, y lo que pasa ahí no lo
+cuenta el GPS. Lo registra la **app de control de acceso**, que escribe en una
+base de Airtable ("Registro Visitantes", tabla `Registros`): una fila por
+evento, con placa, cédula, nombre, motivo, hora de entrada y de salida, y quién
+autorizó.
+
+Al abrir la ficha de un puesto fijo, eso es lo primero que se muestra —totales
+de la ventana, entradas por día y la lista de movimientos— antes que los
+kilómetros, que en un poste son ruido del GPS.
+
+El pegamento entre los dos sistemas es **un solo campo**: cada fila de Airtable
+trae `nodo_origen` con el mismo `node_id` de la malla. No hay tabla de
+equivalencias que mantener; si mañana se instala un nodo en otra portería y la
+app de acceso sella su `nodo_origen`, esa ficha muestra sus ingresos sola.
+
+La lectura pasa por **`/api/porteria`** (ruta de servidor) y nunca por el
+navegador: el token de Airtable es de escritura sobre cédulas, nombres y placas,
+y publicarlo en el bundle sería regalar la llave de autorizar un ingreso. La
+ruta valida el `node_id` contra un patrón antes de meterlo en la fórmula de
+Airtable —si no, se podría cerrar la comilla y leer otros puestos— y devuelve
+sólo los campos que la ficha pinta.
+
+Dos detalles de la data, arreglados en la ruta y no en la fuente porque la
+fuente no es de esta app:
+
+- los nombres llegan **mal codificados** (UTF-8 leído como Windows-1252:
+  "CASTAÑEDA" escrito "CASTAÃEDA"). Se deshace el daño byte a byte; si el
+  resultado no es UTF-8 válido se deja el texto intacto;
+- la ventana se recorta por **días de Bogotá** (05:00Z a 05:00Z), igual que todo
+  lo demás: tomar el día UTC dejaría fuera los ingresos de antes de las 5 a.m.,
+  que en una portería son justo el turno de entrada.
+
 ### Nodos con aparato distinto (Wio Tracker)
 
 No todos los nodos son el mismo aparato. `!43462e94` (**Guaica1 · GUA1**) no es
@@ -563,10 +602,13 @@ nodo no reportó posición nueva); `alt_m`, `pdop`, `rssi` y `battery` pueden ve
 
 ```
 app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
+              api/porteria/ (lee Airtable con el token del servidor)
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
               VideoModal (diálogo de exportación de video)
+              PorteriaPanel (ingresos registrados en un puesto fijo)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               puestos (nodos fijos: portería) · red (estado de la malla mesh)
+              porteria (tipos + cliente de /api/porteria)
               dispositivos (nodos con aparato distinto: Wio Tracker)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
@@ -583,3 +625,8 @@ scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
 
 Solo se usa la **anon key** (lectura pública vía RLS). No hay `service_role` en
 el bundle. La app nunca escribe en la base.
+
+El token de Airtable de la portería (`AIRTABLE_GUAICARAMO_VISITAS_API_KEY`) sí
+es sensible —permite escribir sobre datos de personas—, así que vive únicamente
+en el servidor y se usa dentro de `app/api/porteria`. Nunca sale al cliente, y
+lo que la ruta devuelve son los campos que la ficha muestra, no la fila cruda.

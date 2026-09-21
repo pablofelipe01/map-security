@@ -9,6 +9,7 @@ import { maquinaDe } from "@/lib/tractores";
 import { puestoDe } from "@/lib/puestos";
 import { dayRange, shiftDay, todayLocal } from "@/lib/ranges";
 import BarChart from "./BarChart";
+import PorteriaPanel from "./PorteriaPanel";
 import { MiniIcon, Tile } from "./SidePanel";
 import type { FleetItem } from "@/lib/types";
 
@@ -176,9 +177,22 @@ export default function MachineView({ node, fecha, onBack }: Props) {
         </div>
       </div>
 
-      {/* Un puesto fijo no recorre nada: los kilómetros y las detenciones de
-          abajo son ruido del GPS, no trabajo. Se muestran igual porque sirven
-          para ver si el nodo sigue reportando, pero dichos por lo que son. */}
+      {/* Un puesto fijo no es una máquina, así que lo primero de su ficha no son
+          kilómetros: es lo que sí pasa en él. Control 1 es la portería de
+          entrada y sus ingresos los registra otra app, en Airtable; se leen por
+          `nodo_origen` (ver lib/porteria.ts). */}
+      {puesto && (
+        <PorteriaPanel
+          nodeId={node.node_id}
+          desde={desde}
+          hasta={hasta}
+          nombre={puesto.nombre}
+        />
+      )}
+
+      {/* Los kilómetros y las detenciones de más abajo son ruido del GPS, no
+          trabajo. Se muestran igual porque sirven para ver si el nodo sigue
+          reportando, pero dichos por lo que son. */}
       {puesto && (
         <p className="mb-4 rounded-card border border-border bg-surface-2 px-3 py-2.5 text-xs text-ink-2">
           Este nodo es un puesto fijo ({puesto.nombre}), no una máquina. En el
