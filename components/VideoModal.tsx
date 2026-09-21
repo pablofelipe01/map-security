@@ -288,7 +288,7 @@ function Opcion({
       disabled={disabled}
       className={`flex-1 rounded-[10px] border px-2 py-1.5 text-[12px] font-bold transition disabled:opacity-40 ${
         activo
-          ? "border-accent bg-[#eaf2fb] text-accent"
+          ? "border-accent bg-[#ecf1f4] text-accent"
           : "border-border bg-surface text-ink-2 hover:border-accent-2"
       }`}
     >

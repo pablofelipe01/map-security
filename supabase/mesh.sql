@@ -67,6 +67,24 @@ alter table public.mesh_sites drop constraint if exists mesh_sites_role_valido;
 alter table public.mesh_sites add constraint mesh_sites_role_valido
   check (role in ('gateway', 'repetidor'));
 
+-- A qué red pertenece el sitio. 'mesh' es la malla LoRa que este proyecto
+-- sondea; cualquier otro valor es el NOMBRE de la red ajena y la app lo muestra
+-- tal cual en la ficha del sitio.
+--
+-- Va como columna y no como una lista en el código porque es un hecho del
+-- sitio, no de la app: Casa Hacienda está encendida y operando, pero por otro
+-- protocolo, así que el gateway nunca la va a poder sondear. Sin esto, el mapa
+-- la pintaba "sin datos" —gris, apagada— que es falso: no es que no se sepa, es
+-- que no se mide desde aquí.
+--
+-- `add column if not exists` para que el archivo siga siendo idempotente y se
+-- pueda correr sobre una base ya sembrada.
+alter table public.mesh_sites add column if not exists red text not null default 'mesh';
+
+alter table public.mesh_sites drop constraint if exists mesh_sites_red_no_vacio;
+alter table public.mesh_sites add constraint mesh_sites_red_no_vacio
+  check (length(btrim(red)) > 0);
+
 alter table public.mesh_sites drop constraint if exists mesh_sites_coord_source_valido;
 alter table public.mesh_sites add constraint mesh_sites_coord_source_valido
   check (coord_source is null
@@ -304,6 +322,7 @@ select
   s.node_id,
   s.site_name,
   s.role,
+  s.red,
   s.lat,
   s.lon,
   s.coord_source,
@@ -328,6 +347,11 @@ select
   case
     -- Sin coordenada no hay nada que pintar, aunque el nodo responda.
     when s.lat is null or s.lon is null then 'sin_datos'
+    -- Otra red: no se puede sondear desde aquí, así que ningún umbral de abajo
+    -- aplica. Va ANTES que todos ellos para que los sondeos fallidos de un
+    -- node_id heredado no la tumben a 'inactiva'. Es un estado declarado: dice
+    -- "está encendida en otra red", no "la medimos y respondió".
+    when s.red is distinct from 'mesh' then 'otra_red'
     -- El gateway: vivo porque está escribiendo (ver `gateway_activo`).
     when s.role = 'gateway' and g.escribio_at >= now() - u.sondeo_vigente
       then 'activa'
@@ -507,3 +531,16 @@ update public.mesh_sites
        updated_at = now()
  where site_id = 'torre-oficinas'
    and node_id is distinct from '!9ea29bc4';
+
+-- Casa Hacienda opera en otra red: está encendida, pero habla otro protocolo de
+-- radio y el gateway de la malla no la puede sondear. En el mapa salía "sin
+-- datos" —gris, que se lee como apagada— y eso es un error de hecho: pasa a
+-- 'otra_red', azul, y su ficha dice a qué red pertenece.
+--
+-- El nombre de la red va en la columna: cambiarlo es un UPDATE, no un deploy.
+-- Si la red tiene un nombre propio, reemplazar 'Otra red' abajo por ese nombre.
+update public.mesh_sites
+   set red = 'Otra red',
+       updated_at = now()
+ where site_id = 'casa-hacienda'
+   and red is distinct from 'Otra red';

@@ -1,10 +1,14 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Tema Sirius (siriusagentic.com): blanco, limpio, azul Sirius, esquinas
- * redondeadas. Los valores replican los tokens del patrón SiriusFleet, de modo
- * que un color definido aquí y uno escrito en `globals.css` no puedan
- * divergir.
+ * Tema Sirius: blanco, limpio, azul Sirius, esquinas redondeadas. Los valores
+ * son los del manual de marca Sirius 2023 y replican uno a uno los tokens de
+ * `globals.css`, de modo que un color definido aquí y uno escrito allá no
+ * puedan divergir.
+ *
+ * Los grises se derivan de Imperial (#1A1A33) mezclado con blanco, porque el
+ * manual no trae escala de grises y un gris neutro al lado de esta paleta se
+ * ve sucio.
  */
 const config: Config = {
   content: [
@@ -15,26 +19,28 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#f2f5f9",
+        bg: "#ecf1f4", // Sutileza (gradiente)
         surface: {
           DEFAULT: "#ffffff",
-          2: "#f2f6fb",
+          2: "#f3f9f0", // Primer retoño (gradiente)
         },
-        border: "#e1e8f0",
+        border: "#bcd7ea", // Sutileza
         ink: {
-          DEFAULT: "#171717",
-          2: "#55636f",
-          3: "#8a99a8",
+          DEFAULT: "#1a1a33", // Imperial
+          2: "#5a5a73", // Imperial 55%
+          3: "#9e9eaf", // Imperial 35%
         },
         accent: {
-          DEFAULT: "#0a55a5", // azul Sirius (logo)
-          2: "#00a5e9", // cian del punto de la i
+          DEFAULT: "#0154ac", // Azul Barranca
+          2: "#00a3ff", // Azul Cielo
         },
         brand: {
-          green: "#76b82a", // verde del logo
+          green: "#00b602", // Verde Alegría
         },
-        // Estados operativos. Siempre acompañados de texto o ícono, nunca
-        // solo color: un supervisor daltónico tiene que poder leer la flota.
+        // Estados operativos. Fuera de la paleta de marca a propósito: avisan,
+        // no decoran (ver la nota en globals.css). Siempre acompañados de texto
+        // o ícono, nunca solo color: un supervisor daltónico tiene que poder
+        // leer la flota.
         st: {
           activa: "#0ca30c",
           detenida: "#b97a00",
@@ -50,8 +56,8 @@ const config: Config = {
         mono: ["var(--font-mono)", "ui-monospace", "Menlo", "monospace"],
       },
       boxShadow: {
-        card: "0 2px 10px rgba(13, 42, 78, .08), 0 1px 3px rgba(13, 42, 78, .06)",
-        tile: "0 1px 3px rgba(13,42,78,.05)",
+        card: "0 2px 10px rgba(26, 26, 51, .08), 0 1px 3px rgba(26, 26, 51, .06)",
+        tile: "0 1px 3px rgba(26, 26, 51,.05)",
       },
       keyframes: {
         "mk-pulse": {

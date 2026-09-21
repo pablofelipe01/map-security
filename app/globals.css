@@ -7,26 +7,37 @@
    Tema Sirius — tokens
    Duplicados en tailwind.config.ts para poder usarlos como clases;
    aquí viven para el CSS que se escribe a mano (MapLibre, marcadores).
+
+   Los valores son los del manual de marca Sirius 2023 y se nombran igual, para
+   que un color se pueda auditar contra el documento sin adivinar. Los grises
+   (--ink-2, --ink-3 y los de los pictogramas) no salen del manual porque el
+   manual no trae escala de grises: se derivan mezclando Imperial con blanco,
+   así que la interfaz gris tira a azul-morado y no a gris neutro.
    ============================================================ */
 :root {
-  --bg: #f2f5f9;
+  --bg: #ecf1f4; /* Sutileza (gradiente) */
   --surface: #ffffff;
-  --surface-2: #f2f6fb;
-  --border: #e1e8f0;
-  --ink: #171717;
-  --ink-2: #55636f;
-  --ink-3: #8a99a8;
-  --accent: #0a55a5;
-  --accent-2: #00a5e9;
-  --brand-green: #76b82a;
+  --surface-2: #f3f9f0; /* Primer retoño (gradiente) */
+  --border: #bcd7ea; /* Sutileza */
+  --ink: #1a1a33; /* Imperial */
+  --ink-2: #5a5a73; /* Imperial 55% */
+  --ink-3: #9e9eaf; /* Imperial 35% */
+  --accent: #0154ac; /* Azul Barranca */
+  --accent-2: #00a3ff; /* Azul Cielo */
+  --brand-green: #00b602; /* Verde Alegría */
 
+  /* Estados operativos. NO son colores de marca y se quedan así a propósito:
+     el ámbar y el rojo no existen en la paleta Sirius, pero aquí no decoran,
+     avisan. Un repetidor caído tiene que verse rojo aunque el manual no tenga
+     rojo; cambiarlo por un azul de marca sería más fiel al documento y peor
+     para la persona que mira el mapa a las 3 de la mañana. */
   --st-activa: #0ca30c;
   --st-detenida: #b97a00;
   --st-offline: #7b8794;
   --st-alerta: #d03b3b;
 
   --radius: 14px;
-  --shadow: 0 2px 10px rgba(13, 42, 78, 0.08), 0 1px 3px rgba(13, 42, 78, 0.06);
+  --shadow: 0 2px 10px rgba(26, 26, 51, 0.08), 0 1px 3px rgba(26, 26, 51, 0.06);
   color-scheme: light;
 }
 
@@ -125,11 +136,11 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(13, 42, 78, 0.18);
+  background: rgba(26, 26, 51, 0.18);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(13, 42, 78, 0.3);
+  background: rgba(26, 26, 51, 0.3);
 }
 
 /* ============================================================
@@ -139,7 +150,7 @@ body {
    ============================================================ */
 .maplibregl-map {
   font-family: inherit;
-  background: #dfe7ee;
+  background: #bcd7ea;
 }
 .maplibregl-ctrl-group {
   border: 1px solid var(--border) !important;
@@ -256,9 +267,33 @@ body {
   letter-spacing: 0.5px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
+/* Chapita del aparato (ver lib/dispositivos.ts): va debajo del código, en el
+   color del nodo, para que el nodo especial se distinga sin tener que abrirlo.
+   Dice el MODELO del aparato, no su estado — eso lo sigue diciendo el anillo. */
+.mk-dev {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 13px;
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
 .replay-marker .mk {
   width: 40px;
   height: 40px;
+}
+/* En el replay el marcador es más pequeño y hay varios a la vez: la chapita
+   sobra y se encima con la etiqueta de la de al lado. El color ya distingue. */
+.replay-marker .mk-dev {
+  display: none;
 }
 /* Fuera de su jornada: la máquina sigue en el mapa —existió ese día— pero
    atenuada y sin anillo, porque el marcador ya no dice dónde estaba a esa hora,
@@ -306,7 +341,7 @@ input[type="range"].replay::-webkit-slider-thumb {
   background: var(--accent);
   cursor: pointer;
   border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(13, 42, 78, 0.4);
+  box-shadow: 0 1px 4px rgba(26, 26, 51, 0.4);
 }
 input[type="range"].replay::-moz-range-thumb {
   width: 18px;
@@ -424,6 +459,14 @@ input[type="range"].replay::-moz-range-thumb {
   border-color: #b23b3b;
   border-style: dashed;
 }
+/* Otra red: encendida, pero en otro protocolo que esta malla no sondea. Anillo
+   azul y continuo —no verde— porque el sitio está operando, pero decirlo verde
+   afirmaría un sondeo que nunca se hizo. */
+.ant.otra_red .ant-ring {
+  border-color: #00a3ff; /* Azul Cielo */
+  box-shadow: 0 0 6px rgba(0, 163, 255, 0.55);
+}
+
 /* Sin datos: instalada pero su nodo no llega a la base. Se atenúa para que no
    se lea como "reportando", que es justo lo que no sabemos. */
 .ant.sin_datos {
@@ -439,8 +482,8 @@ input[type="range"].replay::-moz-range-thumb {
   left: 50%;
   transform: translateX(-50%);
   margin-top: -2px;
-  background: rgba(11, 17, 32, 0.82);
-  color: #e6edf4;
+  background: rgba(26, 26, 51, 0.82);
+  color: #ecf1f4;
   border-radius: 6px;
   padding: 1px 5px;
   font-size: 9px;

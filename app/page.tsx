@@ -42,7 +42,7 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 // MapLibre toca `window` al importarse: sólo en cliente.
 const MapGL = dynamic(() => import("@/components/MapGL"), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 bg-[#dfe7ee]" />,
+  loading: () => <div className="absolute inset-0 bg-[#bcd7ea]" />,
 });
 
 /**

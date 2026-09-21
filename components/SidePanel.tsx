@@ -11,6 +11,7 @@ import {
 } from "@/lib/fleet";
 import { maquinaDe, estaRegistrado, flotaConfigurada } from "@/lib/tractores";
 import { esPuesto, puestoDe } from "@/lib/puestos";
+import { dispositivoDe } from "@/lib/dispositivos";
 import type { PiezaRastro } from "@/lib/atribucion";
 import {
   maquinaDeNodoEn,
@@ -315,6 +316,8 @@ function MachinePanel({
         {!puesto && <span className="shrink-0 text-[13px] text-ink-3">✎</span>}
       </button>
 
+      <DispositivoChip nodeId={item.node.node_id} />
+
       {!estaRegistrado(item.node.node_id) && (
         <button
           className="btn-ghost mb-1 border-accent text-accent"
@@ -449,7 +452,7 @@ function MachinePanel({
       </p>
 
       {item.estado === "offline" && item.posicion && (
-        <p className="mt-2.5 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+        <p className="mt-2.5 rounded-[10px] bg-[#ecf1f4] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
           {item.fixConfirmado
             ? `Su último fix tiene más de ${SIN_SENAL_MIN} min: el punto del mapa es el último lugar conocido, no el actual.`
             : "Tiene coordenadas pero ningún fix GPS confirmado: la posición no es verificable."}
@@ -610,6 +613,8 @@ function HistoryMachinePanel({
         </div>
       </div>
 
+      <DispositivoChip nodeId={fila.node.node_id} />
+
       {/* La identidad se resuelve al día mostrado, no a hoy: se rotula para que
           quede claro que "Juan" es quien manejaba esa fecha. */}
       <span className="mb-3.5 mt-2 inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-border px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px] text-ink-2">
@@ -617,12 +622,12 @@ function HistoryMachinePanel({
       </span>
 
       {puesto ? (
-        <p className="mb-3 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+        <p className="mb-3 rounded-[10px] bg-[#ecf1f4] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
           Puesto fijo ({puesto.nombre}): no recorre. Sus metros serían dispersión
           del GPS, así que no se suman ni se dibuja recorrido.
         </p>
       ) : vacio ? (
-        <p className="mb-3 rounded-[10px] bg-[#f2f4f6] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
+        <p className="mb-3 rounded-[10px] bg-[#ecf1f4] px-2.5 py-2 text-[11px] leading-tight text-ink-2">
           Este nodo no registró ningún fix GPS el {date}. No es que no trabajara:
           es que no reportó.
         </p>
@@ -977,7 +982,7 @@ function Fila({
     <div
       className={`flex w-full items-center rounded-xl border pr-1.5 transition ${
         seleccionada
-          ? "border-accent bg-[#eaf2fb]"
+          ? "border-accent bg-[#ecf1f4]"
           : "border-transparent hover:bg-surface-2"
       } ${atenuada ? "opacity-45" : ""}`}
     >
@@ -1037,6 +1042,28 @@ function BotonVideo({
 /** Fixes que tiene un nodo en el día mostrado. */
 function puntosDe(history: HistoryRow[], nodeId: string): number {
   return history.find((h) => h.node.node_id === nodeId)?.puntos ?? 0;
+}
+
+/**
+ * Chapita del aparato del nodo (ver `lib/dispositivos.ts`).
+ *
+ * Va pegada a la identidad y no en la lista de datos porque no es un dato del
+ * día: responde "con qué se está viendo esta máquina", que es lo que explica
+ * por qué este nodo reporta distinto a los demás. En un nodo corriente no se
+ * dibuja nada — decir "radio Meshtastic" en los otros cinco sería ruido.
+ */
+function DispositivoChip({ nodeId }: { nodeId: string }) {
+  const disp = dispositivoDe(nodeId);
+  if (!disp) return null;
+  return (
+    <span
+      className="mb-1 mt-1 inline-flex items-center gap-1.5 rounded-full px-[11px] py-1 text-[10px] font-extrabold uppercase tracking-[1.5px] text-white"
+      style={{ backgroundColor: disp.color }}
+      title={disp.nota ?? "Aparato declarado en la configuración"}
+    >
+      {disp.etiqueta}
+    </span>
+  );
 }
 
 export function MiniIcon({

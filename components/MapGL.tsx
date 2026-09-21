@@ -18,6 +18,7 @@ import {
 import type { FleetItem } from "@/lib/types";
 import { ESTADO_META } from "@/lib/fleet";
 import { maquinaDe, type TipoMaquina } from "@/lib/tractores";
+import { dispositivoDe } from "@/lib/dispositivos";
 import { puestoDe, PUESTOS_SIN_NODO } from "@/lib/puestos";
 import { antenaHTML, markerHTML, puestoHTML } from "@/lib/icons";
 import {
@@ -25,6 +26,9 @@ import {
   enlacesDeclarados,
   fmtDistKm,
   metaDe,
+  esOtraRed,
+  nombreRed,
+  COLOR_OTRA_RED,
   type SitioRed,
 } from "@/lib/red";
 import {
@@ -170,7 +174,7 @@ const ACOPIOS_URL = "/acopios-guaicaramo.geojson";
  * el blanco, la mesh el cian, y los rastros de máquina el resto de la rueda; un
  * color repetido haría dudar de qué se está mirando.
  */
-const ACOPIOS_COLOR = "#c084fc";
+const ACOPIOS_COLOR = "#bcd983";
 
 /**
  * Enlaces de la red mesh. Como las vías, va declarado dentro del estilo inicial:
@@ -359,7 +363,7 @@ export default function MapGL({
             filter: ["!=", ["get", "TIPO"], "Proyectada"],
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": "#0b1120",
+              "line-color": "#1a1a33",
               "line-opacity": 0.45,
               "line-width": VIAS_BORDE_ANCHO,
             },
@@ -386,7 +390,7 @@ export default function MapGL({
             filter: ["==", ["get", "TIPO"], "Proyectada"],
             layout: { "line-cap": "butt", "line-join": "round" },
             paint: {
-              "line-color": "#9ca3af",
+              "line-color": "#9e9eaf",
               "line-width": VIAS_ANCHO,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
@@ -461,7 +465,7 @@ export default function MapGL({
             },
             paint: {
               "text-color": COLOR_RED,
-              "text-halo-color": "#0b1120",
+              "text-halo-color": "#1a1a33",
               "text-halo-width": 1.6,
             },
           },
@@ -486,7 +490,7 @@ export default function MapGL({
             },
             paint: {
               "text-color": "#ffffff",
-              "text-halo-color": "#0b1120",
+              "text-halo-color": "#1a1a33",
               "text-halo-width": 1.6,
               "text-opacity": 0.85,
             },
@@ -520,7 +524,7 @@ export default function MapGL({
             },
             paint: {
               "text-color": "#fde68a",
-              "text-halo-color": "#0b1120",
+              "text-halo-color": "#1a1a33",
               "text-halo-width": 1.4,
               "text-opacity": 0.9,
             },
@@ -546,7 +550,7 @@ export default function MapGL({
             },
             paint: {
               "text-color": ACOPIOS_COLOR,
-              "text-halo-color": "#0b1120",
+              "text-halo-color": "#1a1a33",
               "text-halo-width": 1.4,
             },
           },
@@ -638,8 +642,8 @@ export default function MapGL({
             "match",
             ["get", "tipo"],
             "relevo",
-            "#7b4fd0",
-            "#eb6834",
+            "#0154ac",
+            "#00b602",
           ],
         },
       });
@@ -656,7 +660,7 @@ export default function MapGL({
         },
         paint: {
           "text-color": "#ffffff",
-          "text-halo-color": "#0b1120",
+          "text-halo-color": "#1a1a33",
           "text-halo-width": 1.8,
         },
       });
@@ -746,7 +750,10 @@ export default function MapGL({
       const el = mk.getElement();
       el.innerHTML = antenaHTML({
         rol: s.role,
-        color: COLOR_RED,
+        // El ícono entero cambia de color cuando el sitio no es de esta malla:
+        // el anillo dice cómo está, pero a QUÉ red pertenece es una propiedad
+        // del sitio, no de su estado, y por eso se lee en el propio aparato.
+        color: esOtraRed(s) ? COLOR_OTRA_RED : COLOR_RED,
         sitio: s.site_name,
         estado: s.estado,
       });
@@ -912,6 +919,7 @@ Puesto fijo (sin nodo)`;
         codigo: maq.codigo,
         estado: item.estado,
         rumbo: puesto ? null : item.rumbo,
+        dispositivo: dispositivoDe(id)?.etiqueta,
       });
       const lngLat: [number, number] = puesto
         ? [puesto.lon, puesto.lat]
@@ -931,9 +939,10 @@ Puesto fijo (sin nodo)`;
       }
       const el = mk.getElement();
       el.innerHTML = html;
+      const disp = dispositivoDe(id);
       el.title = `${maq.nombre} · ${maq.codigo}\n${
         ESTADO_META[item.estado].label
-      }`;
+      }${disp ? `\n${disp.etiqueta}` : ""}`;
     }
 
     markerRef.current.forEach((mk, id) => {
@@ -1116,16 +1125,28 @@ function attachClicks(
  */
 function tituloSitio(s: SitioRed): string {
   const meta = metaDe(s.estado);
+  const otra = esOtraRed(s);
   return [
     `${s.site_name}${s.node_id ? ` · ${s.node_id}` : ""}`,
     s.role === "gateway"
       ? "Gateway (backhaul Starlink)"
       : `Repetidor · ${fmtDistKm(s.dist_gateway_m)} del gateway`,
+    // La red va antes del estado porque explica el estado: si el sitio habla
+    // otro protocolo, que esta malla no lo sondee no es una falla.
+    otra ? `Red: ${nombreRed(s)} (fuera de la malla LoRa)` : "",
     `Enlace: ${meta.label} — ${meta.ayuda}`,
-    s.min_sin_senal != null ? `Última señal: hace ${s.min_sin_senal} min` : "",
-    s.rtt_ms != null ? `Respuesta: ${(s.rtt_ms / 1000).toFixed(1)} s` : "",
-    s.route_text ? `Ruta medida: ${s.route_text}` : "",
-    s.fallos_consecutivos > 0
+    // Las mediciones se callan cuando el sitio es de otra red: un sondeo de esta
+    // malla contra una antena que no la habla no mide el enlace del sitio, mide
+    // la ausencia del sitio en la malla. Mostrarlo invitaría a ir a revisar una
+    // antena que está funcionando.
+    !otra && s.min_sin_senal != null
+      ? `Última señal: hace ${s.min_sin_senal} min`
+      : "",
+    !otra && s.rtt_ms != null
+      ? `Respuesta: ${(s.rtt_ms / 1000).toFixed(1)} s`
+      : "",
+    !otra && s.route_text ? `Ruta medida: ${s.route_text}` : "",
+    !otra && s.fallos_consecutivos > 0
       ? `Sondeos fallidos seguidos: ${s.fallos_consecutivos}`
       : "",
     s.notes ? `⚠ ${s.notes}` : "",

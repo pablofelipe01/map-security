@@ -45,7 +45,7 @@ export const PUESTOS: Record<string, Puesto> = {
     codigo: "C1",
     lat: 4.481328,
     lon: -72.951689,
-    color: "#7b4fd0",
+    color: "#0154ac",
   },
 };
 
@@ -78,6 +78,6 @@ export const PUESTOS_SIN_NODO: Puesto[] = [
     codigo: "C3",
     lat: 4.544317,
     lon: -72.957961,
-    color: "#7b4fd0",
+    color: "#0154ac",
   },
 ];

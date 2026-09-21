@@ -869,18 +869,18 @@ function dibujarHUD(ctx: CanvasRenderingContext2D, d: DatosHUD) {
 
   const px = x + 18 * k;
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#171717";
+  ctx.fillStyle = "#1a1a33";
   ctx.font = sans(17, 800);
   ctx.fillText(recortar(ctx, d.nombre, ancho - 34 * k), px, y + 26 * k);
 
-  ctx.fillStyle = "#55636f";
+  ctx.fillStyle = "#5a5a73";
   ctx.font = sans(11, 600);
   ctx.fillText(`${d.codigo} · ${d.fecha}`, px, y + 43 * k);
 
   // Reloj en formato de 12 horas: quien recibe el video suelto necesita
   // distinguir la mañana de la tarde sin hacer la cuenta mental.
   const { hora, sufijo } = hora12(d.minuto);
-  ctx.fillStyle = "#0a55a5";
+  ctx.fillStyle = "#0154ac";
   ctx.font = mono(26, 800);
   ctx.fillText(hora, px, y + 76 * k);
   const anchoHora = ctx.measureText(hora).width;
@@ -888,10 +888,10 @@ function dibujarHUD(ctx: CanvasRenderingContext2D, d: DatosHUD) {
   ctx.fillText(sufijo, px + anchoHora + 6 * k, y + 76 * k);
 
   const cx = px + 128 * k;
-  ctx.fillStyle = "#8a99a8";
+  ctx.fillStyle = "#9e9eaf";
   ctx.font = sans(9, 700);
   ctx.fillText("RECORRIDO", cx, y + 60 * k);
-  ctx.fillStyle = "#171717";
+  ctx.fillStyle = "#1a1a33";
   ctx.font = mono(15, 700);
   ctx.fillText(distancia(d.metros), cx, y + 76 * k);
 

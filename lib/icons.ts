@@ -1,3 +1,4 @@
+import type { EstadoEnlace } from "./red";
 import type { TipoMaquina } from "./tractores";
 import type { TractorEstado } from "./types";
 
@@ -11,38 +12,38 @@ import type { TractorEstado } from "./types";
  * vez menos.
  */
 export function machineSVG(tipo: TipoMaquina, color: string): string {
-  const c = color || "#0a55a5";
+  const c = color || "#0154ac";
 
   if (tipo === "aspersora") {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
       <rect x="8" y="26" width="26" height="16" rx="7" fill="${c}"/>
-      <rect x="34" y="20" width="16" height="22" rx="5" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
-      <rect x="37" y="24" width="9" height="8" rx="3" fill="#cfe9ff"/>
-      <circle cx="41.5" cy="28" r="1.6" fill="#0b0e12"/>
-      <ellipse cx="19" cy="24" rx="10" ry="7" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.5"/>
-      <path d="M4 40 L0 46 M10 42 L7 48 M16 43 L15 49" stroke="#9fd8ff" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="18" cy="47" r="8" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="18" cy="47" r="3.4" fill="#5d6a78"/>
-      <circle cx="45" cy="47" r="10" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="45" cy="47" r="4.4" fill="#5d6a78"/>
+      <rect x="34" y="20" width="16" height="22" rx="5" fill="${c}" stroke="#1a1a33" stroke-width="1.5"/>
+      <rect x="37" y="24" width="9" height="8" rx="3" fill="#bcd7ea"/>
+      <circle cx="41.5" cy="28" r="1.6" fill="#1a1a33"/>
+      <ellipse cx="19" cy="24" rx="10" ry="7" fill="#ecf1f4" stroke="#1a1a33" stroke-width="1.5"/>
+      <path d="M4 40 L0 46 M10 42 L7 48 M16 43 L15 49" stroke="#bcd7ea" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="18" cy="47" r="8" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="18" cy="47" r="3.4" fill="#6a6a80"/>
+      <circle cx="45" cy="47" r="10" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="45" cy="47" r="4.4" fill="#6a6a80"/>
     </svg>`;
   }
 
   if (tipo === "camion") {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
-      <rect x="4" y="18" width="32" height="24" rx="3" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.5"/>
+      <rect x="4" y="18" width="32" height="24" rx="3" fill="#ecf1f4" stroke="#1a1a33" stroke-width="1.5"/>
       <rect x="4" y="26" width="32" height="5" fill="${c}"/>
-      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
-      <path d="M44 26 h4 l5 6 h-9 z" fill="#cfe9ff" stroke="#0b0e12" stroke-width="1.2"/>
-      <rect x="4" y="42" width="52" height="4" rx="2" fill="#39424d"/>
-      <circle cx="14" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="14" cy="47" r="3" fill="#5d6a78"/>
-      <circle cx="28" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="28" cy="47" r="3" fill="#5d6a78"/>
-      <circle cx="48" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="48" cy="47" r="3" fill="#5d6a78"/>
+      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#1a1a33" stroke-width="1.5"/>
+      <path d="M44 26 h4 l5 6 h-9 z" fill="#bcd7ea" stroke="#1a1a33" stroke-width="1.2"/>
+      <rect x="4" y="42" width="52" height="4" rx="2" fill="#43435c"/>
+      <circle cx="14" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="14" cy="47" r="3" fill="#6a6a80"/>
+      <circle cx="28" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="28" cy="47" r="3" fill="#6a6a80"/>
+      <circle cx="48" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="48" cy="47" r="3" fill="#6a6a80"/>
     </svg>`;
   }
 
@@ -51,18 +52,18 @@ export function machineSVG(tipo: TipoMaquina, color: string): string {
   if (tipo === "volqueta") {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
-      <path d="M6 40 L10 14 L38 20 L36 42 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M10 22 L36 27" stroke="#0b0e12" stroke-width="1.2" opacity=".35"/>
-      <path d="M20 40 L32 32" stroke="#39424d" stroke-width="3" stroke-linecap="round"/>
-      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
-      <path d="M44 26 h4 l5 6 h-9 z" fill="#cfe9ff" stroke="#0b0e12" stroke-width="1.2"/>
-      <rect x="6" y="42" width="50" height="4" rx="2" fill="#39424d"/>
-      <circle cx="16" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="16" cy="47" r="3" fill="#5d6a78"/>
-      <circle cx="30" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="30" cy="47" r="3" fill="#5d6a78"/>
-      <circle cx="48" cy="47" r="7" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="48" cy="47" r="3" fill="#5d6a78"/>
+      <path d="M6 40 L10 14 L38 20 L36 42 z" fill="${c}" stroke="#1a1a33" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M10 22 L36 27" stroke="#1a1a33" stroke-width="1.2" opacity=".35"/>
+      <path d="M20 40 L32 32" stroke="#43435c" stroke-width="3" stroke-linecap="round"/>
+      <path d="M38 42 V26 a4 4 0 0 1 4-4 h6 l8 10 v10 z" fill="${c}" stroke="#1a1a33" stroke-width="1.5"/>
+      <path d="M44 26 h4 l5 6 h-9 z" fill="#bcd7ea" stroke="#1a1a33" stroke-width="1.2"/>
+      <rect x="6" y="42" width="50" height="4" rx="2" fill="#43435c"/>
+      <circle cx="16" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="16" cy="47" r="3" fill="#6a6a80"/>
+      <circle cx="30" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="30" cy="47" r="3" fill="#6a6a80"/>
+      <circle cx="48" cy="47" r="7" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="48" cy="47" r="3" fill="#6a6a80"/>
     </svg>`;
   }
 
@@ -70,13 +71,13 @@ export function machineSVG(tipo: TipoMaquina, color: string): string {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
       <path d="M36 24 L52 10 L56 14 L44 28" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/>
-      <path d="M54 12 l6 8 -8 2 z" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.5"/>
+      <path d="M54 12 l6 8 -8 2 z" fill="#ecf1f4" stroke="#1a1a33" stroke-width="1.5"/>
       <rect x="10" y="24" width="28" height="18" rx="6" fill="${c}"/>
-      <rect x="14" y="14" width="16" height="16" rx="5" fill="${c}" stroke="#0b0e12" stroke-width="1.5"/>
-      <rect x="17" y="18" width="10" height="8" rx="3" fill="#cfe9ff"/>
-      <circle cx="22" cy="22" r="1.6" fill="#0b0e12"/>
-      <rect x="6" y="42" width="42" height="10" rx="5" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-      <circle cx="14" cy="47" r="3" fill="#5d6a78"/><circle cx="27" cy="47" r="3" fill="#5d6a78"/><circle cx="40" cy="47" r="3" fill="#5d6a78"/>
+      <rect x="14" y="14" width="16" height="16" rx="5" fill="${c}" stroke="#1a1a33" stroke-width="1.5"/>
+      <rect x="17" y="18" width="10" height="8" rx="3" fill="#bcd7ea"/>
+      <circle cx="22" cy="22" r="1.6" fill="#1a1a33"/>
+      <rect x="6" y="42" width="42" height="10" rx="5" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+      <circle cx="14" cy="47" r="3" fill="#6a6a80"/><circle cx="27" cy="47" r="3" fill="#6a6a80"/><circle cx="40" cy="47" r="3" fill="#6a6a80"/>
     </svg>`;
   }
 
@@ -87,31 +88,31 @@ export function machineSVG(tipo: TipoMaquina, color: string): string {
   if (tipo === "porteria") {
     return `<svg viewBox="0 0 64 64" aria-hidden="true">
       <ellipse cx="32" cy="57" rx="17" ry="4" fill="rgba(0,0,0,.35)"/>
-      <path d="M14 55 v-7 a13 13 0 0 1 9-12.4 h18 a13 13 0 0 1 9 12.4 v7 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M26 35.6 L32 44 L38 35.6" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.2" stroke-linejoin="round"/>
-      <circle cx="32" cy="27" r="8.5" fill="#f0d9bf" stroke="#0b0e12" stroke-width="1.5"/>
-      <path d="M21 19 a11 9 0 0 1 22 0 z" fill="${c}" stroke="#0b0e12" stroke-width="1.5" stroke-linejoin="round"/>
-      <rect x="17" y="18.5" width="30" height="4" rx="2" fill="#0b0e12"/>
-      <path d="M29 13.5 h6 v3 h-6 z" fill="#e6edf4"/>
-      <circle cx="22.5" cy="47" r="2.2" fill="#fde68a" stroke="#0b0e12" stroke-width="1"/>
-      <path d="M32 46 v9" stroke="#0b0e12" stroke-width="1.2" opacity=".5"/>
+      <path d="M14 55 v-7 a13 13 0 0 1 9-12.4 h18 a13 13 0 0 1 9 12.4 v7 z" fill="${c}" stroke="#1a1a33" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M26 35.6 L32 44 L38 35.6" fill="#ecf1f4" stroke="#1a1a33" stroke-width="1.2" stroke-linejoin="round"/>
+      <circle cx="32" cy="27" r="8.5" fill="#f0d9bf" stroke="#1a1a33" stroke-width="1.5"/>
+      <path d="M21 19 a11 9 0 0 1 22 0 z" fill="${c}" stroke="#1a1a33" stroke-width="1.5" stroke-linejoin="round"/>
+      <rect x="17" y="18.5" width="30" height="4" rx="2" fill="#1a1a33"/>
+      <path d="M29 13.5 h6 v3 h-6 z" fill="#ecf1f4"/>
+      <circle cx="22.5" cy="47" r="2.2" fill="#fde68a" stroke="#1a1a33" stroke-width="1"/>
+      <path d="M32 46 v9" stroke="#1a1a33" stroke-width="1.2" opacity=".5"/>
     </svg>`;
   }
 
   // tractor (por defecto)
   return `<svg viewBox="0 0 64 64" aria-hidden="true">
     <ellipse cx="32" cy="56" rx="22" ry="4" fill="rgba(0,0,0,.35)"/>
-    <rect x="40" y="8" width="4" height="12" rx="2" fill="#39424d"/>
-    <circle cx="42" cy="7" r="2.4" fill="#9aa7b4" opacity=".7"/>
+    <rect x="40" y="8" width="4" height="12" rx="2" fill="#43435c"/>
+    <circle cx="42" cy="7" r="2.4" fill="#9e9eaf" opacity=".7"/>
     <path d="M10 34 h16 v-12 a4 4 0 0 1 4-4 h10 a6 6 0 0 1 6 6 v14 h4 a4 4 0 0 1 4 4 v4 h-44 v-8 a4 4 0 0 1 4-4z" fill="${c}"/>
-    <rect x="28" y="20" width="14" height="12" rx="4" fill="#cfe9ff" stroke="#0b0e12" stroke-width="1.5"/>
-    <circle cx="35" cy="26" r="2" fill="#0b0e12"/>
-    <path d="M31 30 q4 2.6 8 0" stroke="#0b0e12" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-    <circle cx="17" cy="46" r="8" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-    <circle cx="17" cy="46" r="3.4" fill="#5d6a78"/>
-    <circle cx="45" cy="44" r="11" fill="#22272e" stroke="#0b0e12" stroke-width="2"/>
-    <circle cx="45" cy="44" r="4.8" fill="#5d6a78"/>
-    <path d="M45 33 v4 M45 51 v4 M34 44 h4 M52 44 h4" stroke="#5d6a78" stroke-width="2"/>
+    <rect x="28" y="20" width="14" height="12" rx="4" fill="#bcd7ea" stroke="#1a1a33" stroke-width="1.5"/>
+    <circle cx="35" cy="26" r="2" fill="#1a1a33"/>
+    <path d="M31 30 q4 2.6 8 0" stroke="#1a1a33" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+    <circle cx="17" cy="46" r="8" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+    <circle cx="17" cy="46" r="3.4" fill="#6a6a80"/>
+    <circle cx="45" cy="44" r="11" fill="#2b2b45" stroke="#1a1a33" stroke-width="2"/>
+    <circle cx="45" cy="44" r="4.8" fill="#6a6a80"/>
+    <path d="M45 33 v4 M45 51 v4 M34 44 h4 M52 44 h4" stroke="#6a6a80" stroke-width="2"/>
   </svg>`;
 }
 
@@ -140,12 +141,25 @@ export function markerHTML(opts: {
   codigo: string;
   estado: TractorEstado;
   rumbo: number | null;
+  /**
+   * Aparato declarado del nodo (`lib/dispositivos.ts`). Cuando viene, el
+   * marcador lleva una segunda etiqueta con el modelo: el ícono sigue siendo el
+   * de la máquina —eso es lo que se mueve por el lote— y la chapita dice con qué
+   * aparato se está viendo.
+   */
+  dispositivo?: string | null;
 }): string {
   const flip = opts.rumbo != null && opts.rumbo > 180 ? "flip" : "";
+  const chapa = opts.dispositivo
+    ? `<span class="mk-dev" style="background:${esc(opts.color)}">${esc(
+        opts.dispositivo
+      )}</span>`
+    : "";
   return `<div class="mk ${opts.estado} ${flip}">
     <div class="mk-ring"></div>
     ${machineSVG(opts.tipo, opts.color)}
     <span class="mk-label">${esc(opts.codigo)}</span>
+    ${chapa}
   </div>`;
 }
 
@@ -159,18 +173,18 @@ export function markerHTML(opts: {
  * el color del anillo.
  */
 export function antenaSVG(rol: "gateway" | "repetidor", color: string): string {
-  const c = color || "#22d3ee";
+  const c = color || "#bcd7ea"; // Sutileza, igual que COLOR_RED
   const plato =
     rol === "gateway"
-      ? `<path d="M40 30 a9 9 0 0 1 13 6" fill="none" stroke="#e6edf4" stroke-width="2.5" stroke-linecap="round"/>
-         <circle cx="41" cy="30" r="2.6" fill="#e6edf4" stroke="#0b0e12" stroke-width="1.2"/>`
+      ? `<path d="M40 30 a9 9 0 0 1 13 6" fill="none" stroke="#ecf1f4" stroke-width="2.5" stroke-linecap="round"/>
+         <circle cx="41" cy="30" r="2.6" fill="#ecf1f4" stroke="#1a1a33" stroke-width="1.2"/>`
       : "";
   return `<svg viewBox="0 0 64 64" aria-hidden="true">
     <ellipse cx="32" cy="57" rx="15" ry="3.5" fill="rgba(0,0,0,.35)"/>
-    <path d="M22 56 L29 22 h6 l7 34" fill="none" stroke="#e6edf4" stroke-width="3" stroke-linejoin="round"/>
-    <path d="M25 42 h14 M24 48 h17" stroke="#e6edf4" stroke-width="2" stroke-linecap="round"/>
-    <path d="M27 32 h10" stroke="#e6edf4" stroke-width="2" stroke-linecap="round"/>
-    <circle cx="32" cy="17" r="3.4" fill="${c}" stroke="#0b0e12" stroke-width="1.2"/>
+    <path d="M22 56 L29 22 h6 l7 34" fill="none" stroke="#ecf1f4" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M25 42 h14 M24 48 h17" stroke="#ecf1f4" stroke-width="2" stroke-linecap="round"/>
+    <path d="M27 32 h10" stroke="#ecf1f4" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="32" cy="17" r="3.4" fill="${c}" stroke="#1a1a33" stroke-width="1.2"/>
     <path d="M24 16 a10 10 0 0 1 3-7" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M18 15 a16 16 0 0 1 5-11" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity=".65"/>
     <path d="M40 16 a10 10 0 0 0-3-7" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>
@@ -190,7 +204,7 @@ export function antenaHTML(opts: {
   rol: "gateway" | "repetidor";
   color: string;
   sitio: string;
-  estado: "activa" | "sin_respuesta" | "inactiva" | "sin_datos";
+  estado: EstadoEnlace;
 }): string {
   return `<div class="ant ${opts.estado}">
     <div class="ant-ring"></div>

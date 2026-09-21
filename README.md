@@ -342,6 +342,36 @@ El estado y la hora del último fix **sí** siguen siendo del nodo: sirven para
 saber si el aparato está vivo. Si una portería se traslada, hay que corregir la
 coordenada aquí — el nodo no lo va a avisar.
 
+### Nodos con aparato distinto (Wio Tracker)
+
+No todos los nodos son el mismo aparato. `!43462e94` (**Guaica1 · GUA1**) no es
+un radio Meshtastic de cabina sino un **Wio Tracker**: rastreador con GPS y
+batería propios. Sigue montado en un tractor —el ícono del mapa no cambia— pero
+reporta, se carga y se diagnostica distinto, así que el mapa lo distingue.
+
+Eso se declara a mano en **`lib/dispositivos.ts`**, junto a `lib/puestos.ts` y
+al respaldo de `lib/tractores.ts`:
+
+```ts
+export const DISPOSITIVOS: Record<string, Dispositivo> = {
+  "!43462e94": { etiqueta: "Wio Tracker", color: "#00b602", nota: "…" },
+};
+```
+
+Un nodo listado ahí cambia en dos cosas:
+
+1. **Color propio** — Verde Alegría, que hoy no usa ninguna máquina registrada,
+   así que se lee de inmediato entre los azules de la flota. El color del
+   dispositivo **pisa** al del registro de flota (se aplica en `maquinaDe`), de
+   modo que el marcador, el rastro, la ficha y el video usan el mismo; cambiarlo
+   desde el formulario de flota no tendrá efecto mientras el nodo esté aquí.
+2. **Etiqueta con el modelo** — una chapita bajo el código en el marcador del
+   mapa (se oculta en el replay, donde se encimaría con los vecinos) y otra en la
+   ficha del nodo, en vivo e histórico.
+
+Es configuración, no telemetría: la tabla `nodes` no trae el modelo de hardware.
+Si el Wio se pasa a otra máquina, hay que corregir el `node_id` aquí.
+
 ### Red mesh — los nodos fijos
 
 Las antenas del predio se leen de Supabase (`mesh_sites` → `v_mesh_health`) y se
@@ -537,6 +567,7 @@ components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarCha
               VideoModal (diálogo de exportación de video)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               puestos (nodos fijos: portería) · red (estado de la malla mesh)
+              dispositivos (nodos con aparato distinto: Wio Tracker)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
               icons (SVG de máquinas) · queries · geo · ranges · types

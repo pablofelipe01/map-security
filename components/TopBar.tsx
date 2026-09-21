@@ -134,7 +134,7 @@ export default function TopBar({
               title={ESTADO_META[i.estado].ayuda}
               className={`flex min-h-11 shrink-0 items-center gap-2 rounded-full border pl-[11px] pr-[15px] text-[12.5px] font-semibold transition md:min-h-0 md:py-2 ${
                 sel
-                  ? "border-accent bg-[#eaf2fb] text-accent"
+                  ? "border-accent bg-[#ecf1f4] text-accent"
                   : "border-border bg-surface text-ink-2 hover:border-accent-2 hover:text-ink"
               }`}
             >

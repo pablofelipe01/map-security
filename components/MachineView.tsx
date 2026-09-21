@@ -241,7 +241,7 @@ export default function MachineView({ node, fecha, onBack }: Props) {
                   date: d.date,
                   value: d.stats.totalDistanceM / 1000,
                 }))}
-                color="#2a78d6"
+                color="#0154ac"
                 unit="km"
                 digits={2}
               />
@@ -258,7 +258,7 @@ export default function MachineView({ node, fecha, onBack }: Props) {
                   date: d.date,
                   value: d.stats.movingMinutes / 60,
                 }))}
-                color="#eb6834"
+                color="#00b602"
                 unit="h"
               />
             </div>
@@ -285,7 +285,7 @@ export default function MachineView({ node, fecha, onBack }: Props) {
                       // estaba mirando en el mapa, y sin marcarlo la tabla son
                       // catorce filas iguales.
                       className={`${d.puntos === 0 ? "opacity-45" : ""} ${
-                        d.date === hasta && !esHoy ? "bg-[#eaf2fb]" : ""
+                        d.date === hasta && !esHoy ? "bg-[#ecf1f4]" : ""
                       }`}>
                       <Td>
                         <span className="font-mono">{d.date.slice(5)}</span>

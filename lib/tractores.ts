@@ -1,3 +1,4 @@
+import { dispositivoDe } from "./dispositivos";
 import { puestoDe } from "./puestos";
 
 /**
@@ -52,7 +53,7 @@ export interface Maquina {
   aplicacion?: string;
 }
 
-export const COLOR_DEFAULT = "#0a55a5";
+export const COLOR_DEFAULT = "#0154ac";
 
 /** Los tipos, con su etiqueta en español, en el orden en que se usan en campo. */
 export const TIPOS_MAQUINA: { valor: TipoMaquina; label: string }[] = [
@@ -68,16 +69,23 @@ export const TIPOS_MAQUINA: { valor: TipoMaquina; label: string }[] = [
  * Paleta de identidad: son los colores con los que el mapa distingue máquinas.
  * Están escogidos para diferenciarse entre sí incluso en un rastro delgado
  * sobre imagen satelital, que es donde se ven de verdad.
+ *
+ * Los tres primeros son los colores de marca (Azul Barranca, Azul Cielo, Verde
+ * Alegría); los cinco siguientes son vecinos de esos mismos azules y verdes,
+ * porque el manual no trae ocho colores y ocho máquinas hay que poder
+ * distinguirlas. Es la concesión asumida: la paleta se ve Sirius, y a cambio
+ * dos máquinas quedan más parecidas entre sí de lo que estaban con la paleta
+ * anterior (que tenía naranja, rosa y violeta, ninguno de marca).
  */
 export const COLORES_FLOTA = [
-  "#0a55a5",
-  "#eb6834",
-  "#1baf7a",
-  "#eda100",
-  "#e87ba4",
-  "#7b4fd0",
-  "#00a3b4",
-  "#b23b3b",
+  "#0154ac", // Azul Barranca
+  "#00a3ff", // Azul Cielo
+  "#00b602", // Verde Alegría
+  "#003a78", // Barranca oscuro
+  "#4dc3ff", // Cielo claro
+  "#00b37f", // entre Cielo y Alegría
+  "#6fa200", // Alegría hacia Cotiledón
+  "#8cbf3f", // Cotiledón saturado
 ];
 
 /**
@@ -88,12 +96,12 @@ export const COLORES_FLOTA = [
  * es más honesto mostrar el nombre de fábrica que inventar una flota.
  */
 export const MAQUINAS: Record<string, Maquina> = {
-  // "!79350d77": { codigo: "T-01", nombre: "Rocinante", tipo: "tractor",   color: "#0a55a5", operador: "", labor: "" },
-  // "!2f3f6694": { codigo: "T-02", nombre: "La Mona",   tipo: "tractor",   color: "#eb6834", operador: "", labor: "" },
-  // "!7e46a447": { codigo: "A-01", nombre: "La Nube",   tipo: "aspersora", color: "#1baf7a", operador: "", labor: "", aplicacion: "" },
-  // "!2ad9c5df": { codigo: "R-01", nombre: "El Oso",    tipo: "retro",     color: "#eda100", operador: "", labor: "" },
-  // "!86591d35": { codigo: "T-03", nombre: "Tibisay",   tipo: "tractor",   color: "#e87ba4", operador: "", labor: "" },
-  // "!587897b7": { codigo: "T-04", nombre: "",          tipo: "tractor",   color: "#7b4fd0", operador: "", labor: "" },
+  // "!79350d77": { codigo: "T-01", nombre: "Rocinante", tipo: "tractor",   color: "#0154ac", operador: "", labor: "" },
+  // "!2f3f6694": { codigo: "T-02", nombre: "La Mona",   tipo: "tractor",   color: "#00a3ff", operador: "", labor: "" },
+  // "!7e46a447": { codigo: "A-01", nombre: "La Nube",   tipo: "aspersora", color: "#00b602", operador: "", labor: "", aplicacion: "" },
+  // "!2ad9c5df": { codigo: "R-01", nombre: "El Oso",    tipo: "retro",     color: "#003a78", operador: "", labor: "" },
+  // "!86591d35": { codigo: "T-03", nombre: "Tibisay",   tipo: "tractor",   color: "#4dc3ff", operador: "", labor: "" },
+  // "!587897b7": { codigo: "T-04", nombre: "",          tipo: "tractor",   color: "#0154ac", operador: "", labor: "" },
 };
 
 /**
@@ -146,13 +154,19 @@ export function maquinaDe(
     };
   }
 
+  // El aparato declarado (ver `lib/dispositivos.ts`) pisa el color: es lo único
+  // de la identidad que no depende de en qué máquina esté montado hoy. Se aplica
+  // aquí y no en cada pantalla para que el marcador, el rastro, la ficha y el
+  // video usen el mismo color sin tener que acordarse de consultarlo.
+  const disp = dispositivoDe(nodeId);
+
   const m = REGISTRO[nodeId] ?? MAQUINAS[nodeId];
-  if (m) return m;
+  if (m) return disp ? { ...m, color: disp.color } : m;
   return {
     codigo: shortName ?? nodeId.slice(-4),
     nombre: longName ?? nodeId,
     tipo: "tractor",
-    color: COLOR_DEFAULT,
+    color: disp?.color ?? COLOR_DEFAULT,
   };
 }
 

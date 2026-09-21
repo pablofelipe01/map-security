@@ -155,7 +155,7 @@ export default function AsignacionModal({
       <div className="mb-3 flex items-center gap-3">
         <MiniIcon
           tipo={maquina?.tipo ?? "tractor"}
-          color={maquina?.color ?? "#c3ced9"}
+          color={maquina?.color ?? "#bcd7ea"}
           className="h-[44px] w-[44px]"
         />
         <div className="min-w-0">

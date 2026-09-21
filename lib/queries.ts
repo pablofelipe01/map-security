@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import type { NodeRow, TrackPoint, Estadia, FleetItem } from "./types";
 import { derivarEstado, FILAS_POR_NODO } from "./fleet";
 import { dayRange, bogotaDay, shiftDay } from "./ranges";
-import type { SitioRed } from "./red";
+import { aplicarOtrasRedes, type SitioRed } from "./red";
 
 const TRACK_COLUMNS =
   "id,node_id,sample_local,gps_time,lat,lon,alt_m,ground_speed," +
@@ -288,17 +288,24 @@ export async function fetchEstadiasDay(
  * en el código a propósito — ver `lib/red.ts`.
  */
 export async function fetchRedMesh(): Promise<SitioRed[]> {
-  const { data, error } = await supabase
-    .from("v_mesh_health")
-    .select(
-      "site_id,node_id,site_name,role,lat,lon,dist_gateway_m,notes,estado," +
-        "min_sin_senal,ultimo_sondeo,ultimo_status,rtt_ms,hops_towards," +
-        "route_text,fallos_consecutivos"
-    )
-    .order("site_name");
+  const COLS =
+    "site_id,node_id,site_name,role,lat,lon,dist_gateway_m,notes,estado," +
+    "min_sin_senal,ultimo_sondeo,ultimo_status,rtt_ms,hops_towards," +
+    "route_text,fallos_consecutivos";
+
+  const pedir = (cols: string) =>
+    supabase.from("v_mesh_health").select(cols).order("site_name");
+
+  // `red` (a qué red pertenece el sitio) es columna nueva de `mesh.sql`. Se pide
+  // aparte y con reintento sin ella porque una base a la que todavía no le
+  // corrieron el archivo devolvería error para TODA la consulta: el mapa se
+  // quedaría sin ninguna antena por una columna de adorno. Sin ella, los sitios
+  // salen con `red: null` y se pintan como siempre.
+  let { data, error } = await pedir(`${COLS},red`);
+  if (error?.code === "42703") ({ data, error } = await pedir(COLS));
 
   if (error) throw error;
   // `as unknown` como en el resto del archivo: con la lista de columnas armada
   // por concatenación, supabase-js no puede inferir la forma de la fila.
-  return (data ?? []) as unknown as SitioRed[];
+  return aplicarOtrasRedes((data ?? []) as unknown as SitioRed[]);
 }

@@ -22,10 +22,25 @@
  */
 
 /**
- * Color de identidad de la red: cian, para que no se confunda con ninguna
- * máquina (la paleta de flota no tiene cian) ni con las vías (blanco y ámbar).
+ * Color de identidad de la red: Sutileza, el azul pastel del manual de marca.
+ * Es el "brillo blanco-azulado" de la estrella Sirius, y es además lo que el
+ * manual pide para tecnología ("colores sutiles pasteles de la paleta"). Sobre
+ * la imagen satelital contrasta sin competir con las vías (blanco y ámbar) ni
+ * con ninguna máquina: la paleta de flota es de azules saturados y verdes, no
+ * de pasteles.
  */
-export const COLOR_RED = "#22d3ee";
+export const COLOR_RED = "#bcd7ea";
+
+/**
+ * Color de los sitios que están en OTRA red (otro protocolo de radio, fuera de
+ * la malla LoRa): Azul Cielo, el azul brillante del manual.
+ *
+ * Es azul y no verde a propósito: ninguno de los cuatro colores de estado lo
+ * usa, así que se lee de un vistazo que ese punto no lo mide este mapa. Y es el
+ * Cielo y no el Barranca porque un azul oscuro a 40 px sobre imagen satelital
+ * se pierde; contra el pastel de la malla (`COLOR_RED`) se distingue solo.
+ */
+export const COLOR_OTRA_RED = "#00a3ff";
 
 /** Qué papel cumple el nodo en la malla. */
 export type RolNodo = "gateway" | "repetidor";
@@ -35,7 +50,17 @@ export type RolNodo = "gateway" | "repetidor";
  * la base a propósito: si la app tradujera el vocabulario, un cambio de umbral
  * en la vista habría que acordarlo aquí también.
  */
-export type EstadoEnlace = "activa" | "sin_respuesta" | "inactiva" | "sin_datos";
+export type EstadoEnlace =
+  | "activa"
+  | "sin_respuesta"
+  | "inactiva"
+  | "sin_datos"
+  /**
+   * Está encendida, pero en otra red: habla otro protocolo y el gateway de la
+   * malla no la puede sondear. No es un estado medido sino declarado, y por eso
+   * se pinta distinto en vez de mentir con el verde de "activa".
+   */
+  | "otra_red";
 
 /** Una fila de `v_mesh_health`: el sitio con su estado. */
 export interface SitioRed {
@@ -43,6 +68,12 @@ export interface SitioRed {
   node_id: string | null;
   site_name: string;
   role: RolNodo;
+  /**
+   * A qué red pertenece el sitio. `"mesh"` es la malla LoRa que este mapa
+   * sondea; cualquier otro valor es el nombre de la red ajena y se muestra tal
+   * cual en la ficha. Null si la base todavía no tiene la columna.
+   */
+  red: string | null;
   lat: number | null;
   lon: number | null;
   /** Distancia declarada al gateway, en metros. */
@@ -106,6 +137,12 @@ export const ENLACE_META: Record<
     color: "#b23b3b",
     ayuda: "Tres o más sondeos seguidos sin respuesta. Hay que ir al sitio.",
   },
+  otra_red: {
+    label: "Otra red",
+    color: COLOR_OTRA_RED,
+    ayuda:
+      "Encendida, pero en otra red: habla otro protocolo y esta malla no la sondea. El estado es declarado, no medido.",
+  },
   sin_datos: {
     label: "Sin datos",
     color: "#7b8794",
@@ -130,4 +167,60 @@ export function metaDe(estado: string): (typeof ENLACE_META)[EstadoEnlace] {
 export function fmtDistKm(m: number | null): string {
   if (m == null) return "—";
   return `${(m / 1000).toFixed(2).replace(".", ",")} km`;
+}
+
+/**
+ * Sitios que están en otra red, mientras la base no lo diga.
+ *
+ * La fuente de verdad es `mesh_sites.red` (ver `supabase/mesh.sql`). Esto es el
+ * puente para las bases a las que todavía no se les corrió ese archivo: sin él,
+ * Casa Hacienda —encendida, pero hablando otro protocolo— acumula timeouts del
+ * gateway y el mapa la pinta roja, que es decir "ve al sitio, se cayó" sobre una
+ * antena que está funcionando.
+ *
+ * Qué SÍ puede vivir aquí: el slug del sitio y el nombre de su red. Lo que no
+ * puede es la coordenada — por eso esto no es la lista de respaldo que se quitó
+ * a propósito (ver el encabezado del archivo): si la consulta falla, este mapa
+ * sigue sin dibujar antenas.
+ *
+ * En cuanto `mesh_sites.red` exista, el valor de la base manda y este mapa se
+ * puede vaciar.
+ */
+export const OTRAS_REDES: Record<string, string> = {
+  "casa-hacienda": "Otra red",
+};
+
+/**
+ * Marca como `otra_red` los sitios de `OTRAS_REDES` que la base todavía no sabe
+ * clasificar.
+ *
+ * Sólo actúa cuando la fila viene SIN `red`, es decir cuando la columna no
+ * existe: si la base ya opina, la base gana. El estado medido se descarta a
+ * propósito —los 91 sondeos fallidos son reales, pero miden una malla a la que
+ * este sitio no pertenece— y por eso también se limpian los contadores, para no
+ * dejar en la ficha una evidencia que contradice la conclusión.
+ */
+export function aplicarOtrasRedes(sitios: SitioRed[]): SitioRed[] {
+  return sitios.map((s) => {
+    const red = OTRAS_REDES[s.site_id];
+    if (!red || s.red != null) return s;
+    return {
+      ...s,
+      red,
+      estado: "otra_red" as const,
+      fallos_consecutivos: 0,
+      ultimo_status: null,
+    };
+  });
+}
+
+/** Si el sitio no pertenece a la malla LoRa que este mapa sondea. */
+export function esOtraRed(s: Pick<SitioRed, "red" | "estado">): boolean {
+  return s.estado === "otra_red" || (s.red != null && s.red !== "mesh");
+}
+
+/** Nombre legible de la red ajena, para la ficha del sitio. */
+export function nombreRed(s: Pick<SitioRed, "red" | "estado">): string {
+  if (!esOtraRed(s)) return "Malla LoRa";
+  return s.red && s.red !== "mesh" ? s.red : "Otra red";
 }
