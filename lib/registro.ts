@@ -29,6 +29,48 @@ export interface MaquinaRow {
 }
 
 /**
+ * Lo que el nombre agrega al código, si agrega algo.
+ *
+ * El registro guarda nombres como "Tractor Recolector Fruto MA 83" o "Maquina
+ * Kubota 108", que al lado de un título que ya dice "MA 83" repiten el dato en
+ * vez de describir la máquina. Se saca del nombre el tramo de palabras que
+ * reconstruye el código —tolerando otra separación, "MA 83" ≡ "MA83"— y lo que
+ * queda es la descripción. Si no queda nada, devuelve null y quien lo llame no
+ * pinta el renglón.
+ *
+ * Vive aquí y no en la pantalla porque lo necesitan las dos que muestran una
+ * máquina por su nombre (la lista de despacho y el selector de acopios), y dos
+ * copias de esta regla se desfasan en el primer nombre raro que entre.
+ */
+export function descripcionMaquina(codigo: string, nombre: string): string | null {
+  const limpia = (s: string) => s.toLowerCase().replace(/[^0-9a-záéíóúñ]/gi, "");
+  const palabras = (nombre ?? "").trim().split(/\s+/).filter(Boolean);
+  const objetivo = limpia(codigo);
+  if (palabras.length === 0 || !objetivo) return null;
+
+  let desde = -1;
+  let hasta = -1;
+  for (let i = 0; i < palabras.length && desde < 0; i++) {
+    let acc = "";
+    for (let j = i; j < palabras.length; j++) {
+      acc += limpia(palabras[j]);
+      if (acc === objetivo) {
+        desde = i;
+        hasta = j;
+        break;
+      }
+      if (!objetivo.startsWith(acc)) break;
+    }
+  }
+
+  const resto = palabras.filter((_, i) => desde < 0 || i < desde || i > hasta);
+  // "Maquina Kubota 108" sin "Kubota 108" queda en "Maquina", que tampoco
+  // distingue a esta máquina de ninguna otra.
+  const texto = resto.join(" ").replace(/^m[áa]quinas?$/i, "").trim();
+  return texto || null;
+}
+
+/**
  * El teléfono NO está aquí a propósito. Se puede escribir pero no se lee: la
  * app consulta con la anon key, que viaja en el bundle del navegador, así que
  * todo lo que se seleccione es público para cualquiera que abra la app o la

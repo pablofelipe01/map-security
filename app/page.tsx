@@ -6,10 +6,17 @@ import TopBar from "@/components/TopBar";
 import SidePanel, { type HistoryRow } from "@/components/SidePanel";
 import ReplayBar from "@/components/ReplayBar";
 import MachineView from "@/components/MachineView";
+import BuscadorCoords from "@/components/BuscadorCoords";
 import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import AsignacionModal from "@/components/AsignacionModal";
 import FlotaAdmin from "@/components/FlotaAdmin";
-import type { Trail, ReplayPos, CambioMapa } from "@/components/MapGL";
+import type {
+  Trail,
+  ReplayPos,
+  CambioMapa,
+  PuntoBuscado,
+} from "@/components/MapGL";
+import { aDMS, type Coordenada } from "@/lib/coords";
 import {
   fetchNodes,
   fetchFleet,
@@ -96,6 +103,17 @@ export default function Page() {
     if (window.matchMedia("(max-width: 767px)").matches) setPanelOpen(false);
   }, []);
   const [fitToken, setFitToken] = useState(0);
+
+  /**
+   * El punto buscado por coordenadas, con la etiqueta que lleva en el mapa.
+   *
+   * Se guarda acá y no dentro del buscador porque quien lo dibuja es el mapa:
+   * el buscador lee el texto y valida, y lo que sale de ahí es un dato de la
+   * pantalla, no suyo. Cada búsqueda crea un objeto nuevo aunque las
+   * coordenadas repitan, para que volver a buscar el mismo sitio vuelva a
+   * centrar el mapa (ver la prop `punto` en components/MapGL.tsx).
+   */
+  const [punto, setPunto] = useState<PuntoBuscado | null>(null);
 
   // Instancia del mapa, para que el exportador de video pueda capturar su
   // canvas. Es un ref y no estado: cambiarlo no tiene que redibujar nada.
@@ -545,9 +563,20 @@ export default function Page() {
           onSelect={selectMachine}
           onOpenMachine={openMachine}
           fitToken={fitToken}
+          punto={punto}
           onMap={(m) => {
             mapRef.current = m;
           }}
+        />
+
+        {/* Va sobre el mapa y no en la barra de arriba: la barra ya lleva seis
+            bloques y en celular envuelve a tres renglones. Arriba a la
+            izquierda, que es la esquina libre — el zoom de MapLibre está
+            arriba a la derecha y la escala abajo a la izquierda. */}
+        <BuscadorCoords
+          onBuscar={(c: Coordenada | null) =>
+            setPunto(c ? { ...c, etiqueta: aDMS(c) } : null)
+          }
         />
 
         <SidePanel

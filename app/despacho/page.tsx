@@ -1,140 +1,87 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import SelectorAcopios from "@/components/SelectorAcopios";
-import MaquinaNodo from "@/components/MaquinaNodo";
-import type { MaquinaMapa, ParadaMapa, RutaMapa } from "@/components/MapaPlan";
-import { fetchAcopios, acopioMasCercano, type Acopio } from "@/lib/acopios";
+import PlanillaVagones from "@/components/PlanillaVagones";
+import { fetchAcopios, AcopiosNoInstalados, type Acopio } from "@/lib/acopios";
+import { fetchFlota, FLOTA_VACIA, type Flota } from "@/lib/registro";
 import {
-  agregarParada,
-  fetchPlan,
-  grafoVias,
-  marcarParada,
-  planearJornada,
-  rutaPropuesta,
-  rutasPorMaquina,
-  acopiosRepetidos,
-  type Parada,
-} from "@/lib/planeacion";
-import { fetchFleet, fetchNodes, fetchRedMesh } from "@/lib/queries";
-import {
-  fetchFlota,
-  nodoDeMaquinaEn,
-  operadorDeMaquinaEn,
-  FLOTA_VACIA,
-  type Flota,
-  type MaquinaRow,
-} from "@/lib/registro";
-import { dayRange, todayLocal } from "@/lib/ranges";
-import { fmtDist } from "@/lib/geo";
+  corregirViaje,
+  fetchPlanilla,
+  marcarSalida,
+  registrarViaje,
+  type Viaje,
+  type ViajeCambios,
+  type ViajeNuevo,
+} from "@/lib/vagones";
+import { shiftDay, todayLocal } from "@/lib/ranges";
 import { SUPABASE_READY } from "@/lib/supabase";
-import { COLOR_DEFAULT } from "@/lib/tractores";
-import type { SitioRed } from "@/lib/red";
-import type { Grafo } from "@/lib/rutas";
-import type { FleetItem } from "@/lib/types";
-
-// MapLibre toca `window` al importarse: sólo en cliente.
-const MapaPlan = dynamic(() => import("@/components/MapaPlan"), {
-  ssr: false,
-  loading: () => <div className="absolute inset-0 bg-[#bcd7ea]" />,
-});
 
 /**
- * Despacho: a dónde va cada máquina hoy.
+ * Despacho: la planilla de vagones de Logística y Transporte.
  *
- * La torre (`app/page.tsx`) contesta qué pasó; esta pantalla decide qué va a
- * pasar. Son la misma finca, las mismas máquinas y el mismo mapa de fondo, pero
- * la pregunta es otra y por eso es otra ruta y no un tercer modo del topbar: el
- * coordinador que planea no está mirando estados de nodo, y quien vigila la
- * flota no quiere que un clic le reasigne un tractor.
+ * ES LA CARA DEL DESPACHO, y la planeación de rutas quedó un nivel adentro
+ * (`/despacho/rutas`). El orden lo manda el uso: la planilla es la única
+ * pantalla que alguien tiene abierta todo el día —cada reporte que entra por
+ * radio es un renglón— mientras que la ruta de los tractores se arma temprano y
+ * no se vuelve a mirar. Quien escribe "despacho" en el navegador está yendo a
+ * anotar un reporte nueve de cada diez veces.
  *
- * Lo que sí comparte es todo lo que ya estaba: el registro de flota
- * (`lib/registro.ts`), las posiciones (`lib/queries.ts`), la malla vial
- * (`lib/rutas.ts`) y los acopios del plano.
+ * Las dos siguen siendo pantallas distintas y no pestañas de una sola: la
+ * planeación necesita el mapa a pantalla completa y ésta no necesita mapa
+ * ninguno. Comparten los acopios y la jornada, no el gesto.
+ *
+ * NO HAY MAPA ACÁ, y es a propósito. La hoja se llena de oído: entra el reporte
+ * por radio y se anota. Lo único que hace falta ver es si el acopio existe, y
+ * eso se contesta con el código que aparece bajo las casillas. El día que haga
+ * falta ubicarlos, el mapa de `/despacho/rutas` ya sabe pintar acopios.
+ *
+ * SIN POLL. La planeación refresca cada minuto porque mira posiciones de nodos
+ * que cambian solas; acá el único que escribe es quien está mirando la
+ * pantalla. Recargar debajo de sus manos le movería el renglón que está
+ * corrigiendo para no traerle nada nuevo.
  */
-
-/**
- * Cada cuánto se refresca.
- *
- * Igual que la torre: la fuente se actualiza cada 10 min, así que sondear más
- * rápido no trae nada nuevo. Sólo corre cuando se está mirando el día de hoy —
- * planear el jueves no necesita refrescar posiciones de ayer.
- */
-const POLL_MS = 60_000;
 
 export default function DespachoPage() {
   const [jornada, setJornada] = useState(todayLocal());
 
-  const [flota, setFlota] = useState<Flota>(FLOTA_VACIA);
+  const [viajes, setViajes] = useState<Viaje[]>([]);
   const [acopios, setAcopios] = useState<Acopio[]>([]);
-  const [plan, setPlan] = useState<Parada[]>([]);
-  const [fleet, setFleet] = useState<FleetItem[]>([]);
-  const [grafo, setGrafo] = useState<Grafo | null>(null);
-
-  /**
-   * Los sitios de la malla, que aquí sólo sirven para una cosa: saber qué
-   * node_id es una antena y no un radio de tractor. Va por su lado y su error
-   * no llega al banner, igual que en la torre — que las tablas de la malla no
-   * existan no puede dejar el despacho sin máquinas. `null` = todavía no se
-   * sabe, que no es lo mismo que "no hay antenas".
-   */
-  const [sitios, setSitios] = useState<SitioRed[] | null>(null);
+  const [flota, setFlota] = useState<Flota>(FLOTA_VACIA);
 
   const [cargando, setCargando] = useState(true);
+  const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editando, setEditando] = useState<MaquinaRow | null>(null);
-  const [encuadre, setEncuadre] = useState(0);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [busqueda, setBusqueda] = useState("");
-
-  /**
-   * Diálogo de máquina y nodo. `null` = cerrado; `{ maquina: null }` = alta.
-   *
-   * El objeto envuelto y no un `MaquinaRow | null` suelto porque "cerrado" y
-   * "abierto para crear una nueva" son estados distintos y los dos valen null.
-   */
-  const [ficha, setFicha] = useState<{ maquina: MaquinaRow | null } | null>(null);
-
-  const esHoy = jornada === todayLocal();
-
-  /**
-   * Instante al que se resuelve la identidad de la flota.
-   *
-   * Para hoy es ahora; para una jornada pasada, su último momento. Sin esto, el
-   * plan del 3 de marzo diría qué máquina lleva HOY ese nodo, que es justo el
-   * error que el registro con vigencias existe para no cometer.
-   */
-  const instante = useMemo(() => {
-    const fin = Date.parse(dayRange(jornada).toISO);
-    return Math.min(Date.now(), fin);
-  }, [jornada]);
 
   /* --------------------------- carga --------------------------- */
 
-  const cargarPlan = useCallback(async () => {
-    setPlan(await fetchPlan(jornada));
+  const cargarHoja = useCallback(async () => {
+    setViajes(await fetchPlanilla(jornada));
   }, [jornada]);
 
   const cargarTodo = useCallback(async () => {
+    setCargando(true);
     setError(null);
     try {
-      const [f, a, nodes] = await Promise.all([
-        fetchFlota(),
+      // Los catálogos van con la hoja en la primera carga: los tres se piden a
+      // la vez porque ninguno depende del otro y esperar en fila triplica lo
+      // que la pantalla tarda en ser usable.
+      const [ac, fl, hoja] = await Promise.all([
         fetchAcopios(),
-        fetchNodes(),
+        fetchFlota(),
+        fetchPlanilla(jornada),
       ]);
-      setFlota(f);
-      setAcopios(a);
-      setFleet(await fetchFleet(nodes));
-      await cargarPlan();
+      setAcopios(ac);
+      setFlota(fl);
+      setViajes(hoja);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar el despacho.");
+      setError(
+        e instanceof Error ? e.message : "No se pudo cargar la planilla."
+      );
     } finally {
       setCargando(false);
     }
-  }, [cargarPlan]);
+  }, [jornada]);
 
   useEffect(() => {
     if (!SUPABASE_READY) {
@@ -145,514 +92,158 @@ export default function DespachoPage() {
     void cargarTodo();
   }, [cargarTodo]);
 
-  useEffect(() => {
-    if (!esHoy) return;
-    const id = setInterval(() => void cargarTodo(), POLL_MS);
-    return () => clearInterval(id);
-  }, [esHoy, cargarTodo]);
-
-  // El grafo vial se arma una vez por sesión (cuesta ~200 ms) y lo comparten la
-  // torre y esta pantalla; aquí sólo se pide.
-  useEffect(() => {
-    void grafoVias().then(setGrafo);
-  }, []);
-
-  // La malla se lee una vez: una antena no cambia de node_id en una jornada.
-  useEffect(() => {
-    if (!SUPABASE_READY) return;
-    fetchRedMesh()
-      .then(setSitios)
-      .catch((e) => console.warn("[red] no se pudo leer la malla", e));
-  }, []);
-
-  /* --------------------------- derivados --------------------------- */
-
-  /** Última posición conocida por node_id. */
-  const posPorNodo = useMemo(
-    () => new Map(fleet.map((f) => [f.node.node_id, f])),
-    [fleet]
-  );
-
-  /** Las máquinas activas, con su nodo y su posición de hoy. */
-  const maquinas = useMemo(() => {
-    return flota.maquinas
-      .filter((m) => m.activa)
-      .map((m) => {
-        const nodeId = nodoDeMaquinaEn(flota, m.id, instante);
-        const item = nodeId ? posPorNodo.get(nodeId) ?? null : null;
-        return {
-          maquina: m,
-          nodeId,
-          item,
-          posicion: item?.posicion ?? null,
-          operador: operadorDeMaquinaEn(flota, m.id, instante)?.nombre ?? null,
-        };
-      })
-      .sort((a, b) =>
-        a.maquina.codigo.localeCompare(b.maquina.codigo, "es", { numeric: true })
-      );
-  }, [flota, instante, posPorNodo]);
-
-  const rutas = useMemo(() => rutasPorMaquina(plan), [plan]);
-  const rutaDe = useMemo(
-    () => new Map(rutas.map((r) => [r.maquinaId, r])),
-    [rutas]
-  );
-  const repetidos = useMemo(() => acopiosRepetidos(plan), [plan]);
+  /* --------------------------- escritura --------------------------- */
 
   /**
-   * Las máquinas que quedan al buscar.
+   * Después de escribir se relee la hoja entera y no se parcha el estado local.
    *
-   * Busca por todo lo que el coordinador tiene en la cabeza cuando busca: el
-   * código, el nombre, quién la maneja, el nodo que lleva y los acopios que ya
-   * tiene en la ruta. Ese último es el que importa de verdad — "¿quién va al
-   * B.9-P.2?" es la pregunta que hoy obliga a recorrer la lista entera a ojo.
+   * El consecutivo lo asigna la base con un lock por jornada (ver
+   * `viajes_numerar`), así que el renglón que acaba de nacer puede no ser el
+   * último si alguien más registró al mismo tiempo. Releer cuesta una consulta
+   * de treinta filas y es la diferencia entre ver la hoja y ver la hoja que uno
+   * cree que hay.
    */
-  const visibles = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return maquinas;
-    return maquinas.filter((m) => {
-      const paradas = rutaDe.get(m.maquina.id)?.paradas ?? [];
-      return [
-        m.maquina.codigo,
-        m.maquina.nombre,
-        m.operador,
-        m.nodeId,
-        ...paradas.map((p) => p.acopio_codigo),
-      ].some((v) => v?.toLowerCase().includes(q));
-    });
-  }, [maquinas, busqueda, rutaDe]);
-
-  /** La ruta propuesta de cada máquina, ya calculada sobre la malla vial. */
-  const propuestas = useMemo(() => {
-    if (!grafo) return new Map<string, ReturnType<typeof rutaPropuesta>>();
-    const out = new Map<string, ReturnType<typeof rutaPropuesta>>();
-    for (const m of maquinas) {
-      const r = rutaDe.get(m.maquina.id);
-      if (!r || r.paradas.length === 0) continue;
-      out.set(
-        m.maquina.id,
-        rutaPropuesta(
-          grafo,
-          m.posicion ? { lat: m.posicion.lat, lon: m.posicion.lon } : null,
-          r.paradas
-        )
-      );
-    }
-    return out;
-  }, [grafo, maquinas, rutaDe]);
-
-  /* --------------------------- capas del mapa --------------------------- */
-
-  const capaRutas: RutaMapa[] = useMemo(
-    () =>
-      [...propuestas.entries()].flatMap(([maquinaId, p]) => {
-        const color = rutaDe.get(maquinaId)?.color || COLOR_DEFAULT;
-        // Un trayecto por rasgo y no la ruta entera en una línea: así el tramo
-        // que no se pudo resolver por vías se puede puntear solo, en vez de
-        // marcar toda la ruta como dudosa por culpa de uno.
-        return p.trayectos.map((t) => ({
-          maquinaId,
-          color,
-          latlngs: t.latlngs,
-          aproximada: !t.porVia,
-        }));
-      }),
-    [propuestas, rutaDe]
-  );
-
-  const capaParadas: ParadaMapa[] = useMemo(
-    () =>
-      rutas.flatMap((r) =>
-        r.paradas.map((p) => ({
-          lat: p.lat,
-          lon: p.lon,
-          orden: p.orden,
-          codigo: p.acopio_codigo,
-          color: r.color || COLOR_DEFAULT,
-          completada: p.estado === "completada",
-        }))
-      ),
-    [rutas]
-  );
-
-  const capaMaquinas: MaquinaMapa[] = useMemo(
-    () =>
-      maquinas
-        .filter((m) => m.posicion)
-        .map((m) => ({
-          maquinaId: m.maquina.id,
-          codigo: m.maquina.codigo,
-          color: m.maquina.color || COLOR_DEFAULT,
-          lat: m.posicion!.lat,
-          lon: m.posicion!.lon,
-          edadMin: m.item?.edadFixMin ?? null,
-        })),
-    [maquinas]
-  );
-
-  /* --------------------------- acciones --------------------------- */
-
-  const guardarRuta = useCallback(
-    async (maquinaId: string, acopioIds: string[]) => {
-      await planearJornada(maquinaId, jornada, acopioIds);
-      await cargarPlan();
-      setEncuadre((n) => n + 1);
-    },
-    [jornada, cargarPlan]
-  );
-
-  const cambiarEstado = useCallback(
-    async (p: Parada, estado: Parada["estado"]) => {
-      setAviso(null);
+  const tras = useCallback(
+    async (accion: () => Promise<unknown>) => {
+      setOcupado(true);
+      setError(null);
       try {
-        await marcarParada(p.id, estado);
-        await cargarPlan();
-      } catch (e) {
-        setAviso(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
+        await accion();
+        await cargarHoja();
+      } finally {
+        setOcupado(false);
       }
     },
-    [cargarPlan]
+    [cargarHoja]
   );
 
-  /**
-   * Clic en el mapa: lo agrega a la ruta de la máquina que se esté editando.
-   *
-   * Sólo cuando hay una máquina abierta en el diálogo — sin eso, un clic no
-   * tiene a quién asignarle nada y lo único honesto es no hacer nada.
-   */
-  const clicEnMapa = useCallback(
-    async (lat: number, lon: number) => {
-      if (editando) return; // el diálogo ya tiene su propio selector
-      const cerca = acopioMasCercano(acopios, lat, lon);
-      setAviso(
-        cerca
-          ? `${cerca.acopio.codigo} · a ${fmtDist(cerca.distanciaM)} del clic. ` +
-              `Ábrelo desde la ruta de una máquina para asignarlo.`
-          : "Ahí no hay ningún acopio cerca."
-      );
+  // Los errores de estas tres suben al formulario que las llamó, que es donde
+  // la persona está mirando: un banner arriba de la pantalla, con el diálogo
+  // abierto encima, no lo ve nadie.
+  const onRegistrar = useCallback(
+    (v: ViajeNuevo) => tras(() => registrarViaje(v)),
+    [tras]
+  );
+
+  const onCorregir = useCallback(
+    (id: string, cambios: ViajeCambios) => tras(() => corregirViaje(id, cambios)),
+    [tras]
+  );
+
+  /** El clic de "Marcar salida" no tiene formulario donde mostrar un error. */
+  const onSalida = useCallback(
+    async (id: string) => {
+      try {
+        await tras(() => marcarSalida(id));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo marcar la salida.");
+      }
     },
-    [acopios, editando]
+    [tras]
   );
 
   /* --------------------------- pantalla --------------------------- */
 
-  const faltanAcopios = !cargando && acopios.length === 0;
-  const faltaFlota = !cargando && flota.maquinas.length === 0;
+  const faltanAcopios = !cargando && !error && acopios.length === 0;
+  const faltanOperadores = !cargando && !error && flota.operadores.length === 0;
 
   return (
-    <main className="flex h-[100dvh] flex-col">
-      {/* ------------------------------ barra ------------------------------ */}
-      <header className="z-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2.5 shadow-card">
-        <Link href="/" className="back-link shrink-0">
-          ← Torre
-        </Link>
+    <main className="flex min-h-[100dvh] flex-col bg-bg">
+      {/* La barra se arma en dos renglones en celular y en uno en escritorio.
+          Amontonar los enlaces, el título y el selector de día en una sola
+          línea de 390 px los parte donde caiga, y el resultado es una cabecera
+          de cuatro renglones que se come media pantalla antes del primer dato.
+          Acá el primer renglón es "dónde estoy y a dónde puedo ir" y el
+          segundo, entero, es el día — que es el único control de la barra. */}
+      <header className="z-10 border-b border-border bg-surface px-3 py-2 shadow-card md:px-4 md:py-2.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Link href="/" className="back-link shrink-0">
+            ← Torre
+          </Link>
+          <Link href="/despacho/rutas" className="back-link shrink-0">
+            Rutas del día
+          </Link>
 
-        <div className="mr-auto min-w-0">
-          <h1 className="card-h2 !mb-0.5">Despacho de recolección</h1>
-          <p className="text-[11px] leading-tight text-ink-2">
-            A qué acopios va cada máquina. El estado lo declaras tú: la app no
-            puede saber que un tractor llegó.
-          </p>
+          <h1 className="card-h2 !mb-0 md:mr-auto">Planilla de vagones</h1>
+
+          <div className="mt-1 flex w-full items-center gap-1 md:mt-0 md:w-auto">
+            <button
+              type="button"
+              className="btn-chip"
+              onClick={() => setJornada((d) => shiftDay(d, -1))}
+              aria-label="Día anterior"
+            >
+              ←
+            </button>
+            {/* Crece hasta llenar el renglón en celular: un `<input type=date>`
+                angosto esconde el año y obliga a apuntar a un campo de 20 px. */}
+            <input
+              type="date"
+              value={jornada}
+              onChange={(e) => setJornada(e.target.value)}
+              className="field flex-1 md:w-auto md:flex-none"
+            />
+            <button
+              type="button"
+              className="btn-chip"
+              onClick={() => setJornada((d) => shiftDay(d, 1))}
+              aria-label="Día siguiente"
+            >
+              →
+            </button>
+          </div>
         </div>
-
-        <label className="flex shrink-0 items-center gap-2">
-          <span className="t-label">Jornada</span>
-          <input
-            type="date"
-            value={jornada}
-            onChange={(e) => setJornada(e.target.value)}
-            className="field w-auto"
-          />
-        </label>
-
-        <button
-          type="button"
-          className="btn-chip"
-          onClick={() => setEncuadre((n) => n + 1)}
-        >
-          Encuadrar
-        </button>
       </header>
 
-      {aviso && (
-        <div className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-1.5 text-[11px] text-ink-2">
-          <span className="flex-1">{aviso}</span>
-          <button type="button" className="btn-chip" onClick={() => setAviso(null)}>
-            Cerrar
-          </button>
-        </div>
-      )}
-
-      <div className="relative flex min-h-0 flex-1 flex-col-reverse md:flex-row">
-        {/* ----------------------------- lista ----------------------------- */}
-        <aside className="z-10 flex max-h-[52dvh] w-full shrink-0 flex-col border-t border-border bg-surface md:max-h-none md:h-full md:w-[360px] md:border-r md:border-t-0">
-          {/* Fijo arriba: en una flota de veinte máquinas, un buscador que se va
-              con el scroll obliga a subir hasta arriba para corregir lo que se
-              acaba de escribir. */}
-          <div className="shrink-0 border-b border-border p-3">
-            <div className="flex items-center gap-2">
-              <input
-                className="field"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Buscar máquina, operador, nodo o acopio…"
-                autoComplete="off"
-                aria-label="Buscar máquina"
-              />
-              <button
-                type="button"
-                className="btn-chip"
-                title="Dar de alta una máquina y montarle un nodo"
-                onClick={() => setFicha({ maquina: null })}
-              >
-                + Máquina
-              </button>
-            </div>
-
-            {busqueda && (
-              <p className="mt-1.5 flex items-center gap-2 text-[10px] text-ink-3">
-                <span className="flex-1">
-                  {visibles.length} de {maquinas.length}{" "}
-                  {maquinas.length === 1 ? "máquina" : "máquinas"}
-                </span>
-                <button
-                  type="button"
-                  className="font-bold text-accent hover:underline"
-                  onClick={() => setBusqueda("")}
-                >
-                  Limpiar
-                </button>
-              </p>
-            )}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {cargando && <p className="text-[12px] text-ink-3">Cargando…</p>}
-
-          {error && (
-            <p className="rounded-[10px] bg-[#fdecec] px-3 py-2 text-[11px] text-st-alerta">
+      <div className="flex-1 pt-3">
+        {error && (
+          <div className="mx-auto mb-3 w-full max-w-[1280px] px-3">
+            <p className="rounded-[10px] bg-[#fdecec] px-3 py-2 text-[12px] leading-tight text-st-alerta">
               {error}
             </p>
-          )}
-
-          {faltaFlota && !error && (
-            <p className="rounded-[10px] bg-bg px-3 py-3 text-[11px] leading-relaxed text-ink-2">
-              No hay máquinas registradas. Se dan de alta desde la torre, en el
-              administrador de flota.
-            </p>
-          )}
-
-          {faltanAcopios && !error && (
-            <p className="mt-2 rounded-[10px] bg-bg px-3 py-3 text-[11px] leading-relaxed text-ink-2">
-              No hay acopios cargados. Corre <code>supabase/acopios.sql</code> y
-              después <code>supabase/acopios-datos.sql</code> en el SQL Editor de
-              Supabase.
-            </p>
-          )}
-
-          {!cargando && maquinas.length > 0 && visibles.length === 0 && (
-            <p className="rounded-[10px] bg-bg px-3 py-3 text-[11px] leading-relaxed text-ink-2">
-              Ninguna máquina coincide con «{busqueda}». La búsqueda mira código,
-              nombre, operador, nodo y los acopios que ya tiene en la ruta de esta
-              jornada.
-            </p>
-          )}
-
-          {visibles.map(({ maquina, nodeId, posicion, operador, item }) => {
-            const ruta = rutaDe.get(maquina.id);
-            const paradas = ruta?.paradas ?? [];
-            const prop = propuestas.get(maquina.id);
-
-            return (
-              <section
-                key={maquina.id}
-                className="card mb-2 p-3"
-                style={{ borderLeft: `3px solid ${maquina.color || COLOR_DEFAULT}` }}
-              >
-                {/* El codigo y el nombre en columna, el boton al lado: en una
-                    sola linea "Kubota 108" se parte en dos y el renglon queda
-                    de dos alturas distintas segun el largo del codigo. */}
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[15px] font-bold leading-tight text-accent">
-                      {maquina.codigo}
-                    </div>
-                    {maquina.nombre && (
-                      <div className="truncate text-[11px] leading-tight text-ink-2">
-                        {maquina.nombre}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-chip"
-                    onClick={() => setEditando(maquina)}
-                  >
-                    {paradas.length ? "Editar ruta" : "Planear"}
-                  </button>
-                </div>
-
-                <div className="mt-1.5 text-[10px] leading-tight text-ink-3">
-                  {operador ? `${operador} al mando` : "Sin operador al mando"}
-                  {" · "}
-                  {/* El estado del nodo es también el botón para cambiarlo: es
-                      donde la persona ya está mirando cuando se da cuenta de
-                      que a esta máquina le falta radio. */}
-                  <button
-                    type="button"
-                    className={`underline decoration-dotted underline-offset-2 hover:text-accent ${
-                      nodeId ? "" : "text-st-detenida"
-                    }`}
-                    title={
-                      nodeId
-                        ? `Nodo ${nodeId}. Clic para cambiarlo o desmontarlo.`
-                        : "Clic para montarle un nodo"
-                    }
-                    onClick={() => setFicha({ maquina })}
-                  >
-                    {!nodeId
-                      ? "sin nodo: no se puede seguir en el mapa"
-                      : posicion
-                        ? `${nodeId} · hace ${
-                            item?.edadFixMin == null
-                              ? "—"
-                              : Math.round(item.edadFixMin)
-                          } min`
-                        : `${nodeId} · sin posición reportada`}
-                  </button>
-                </div>
-
-                {paradas.length === 0 ? (
-                  <p className="mt-2 text-[11px] text-ink-3">Sin ruta para esta jornada.</p>
-                ) : (
-                  <>
-                    <ol className="mt-2">
-                      {paradas.map((p) => (
-                        <li
-                          key={p.id}
-                          className="flex min-h-[32px] items-center gap-2 border-t border-border py-1.5 first:border-t-0"
-                        >
-                          <span
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                            style={{
-                              background: maquina.color || COLOR_DEFAULT,
-                              opacity: p.estado === "completada" ? 0.45 : 1,
-                            }}
-                          >
-                            {p.orden}
-                          </span>
-
-                          <span
-                            className={`min-w-0 flex-1 truncate text-[11.5px] ${
-                              p.estado === "completada" ? "text-ink-3 line-through" : ""
-                            }`}
-                          >
-                            {p.acopio_codigo}
-                            {repetidos.has(p.acopio_id) && (
-                              <span
-                                className="ml-1 text-st-detenida"
-                                title="Otra máquina también va a este acopio hoy"
-                              >
-                                ⚠
-                              </span>
-                            )}
-                          </span>
-
-                          {p.estado === "planeada" && (
-                            <button
-                              type="button"
-                              className="btn-chip text-[10px]"
-                              onClick={() => void cambiarEstado(p, "en_curso")}
-                            >
-                              Despachar
-                            </button>
-                          )}
-                          {p.estado === "en_curso" && (
-                            <button
-                              type="button"
-                              className="btn-chip btn-chip-solid text-[10px]"
-                              style={{ background: "var(--st-activa)" }}
-                              onClick={() => void cambiarEstado(p, "completada")}
-                            >
-                              Completar
-                            </button>
-                          )}
-                          {p.estado === "completada" && (
-                            <span className="shrink-0 text-[10px] text-st-activa">✓</span>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-
-                    {prop && (
-                      <p className="mt-2 border-t border-border pt-2 text-[10px] leading-tight text-ink-3">
-                        {fmtDist(prop.metrosTotal)} por el camino propuesto
-                        {prop.sinVia > 0 && (
-                          <>
-                            {" · "}
-                            <span className="text-st-detenida">
-                              {prop.sinVia}{" "}
-                              {prop.sinVia === 1 ? "tramo" : "tramos"} sin vía (línea
-                              punteada en el mapa)
-                            </span>
-                          </>
-                        )}
-                        <br />
-                        Es una propuesta por la malla vial, no un tiempo de llegada.
-                      </p>
-                    )}
-                  </>
-                )}
-              </section>
-            );
-          })}
           </div>
-        </aside>
+        )}
 
-        {/* ----------------------------- mapa ----------------------------- */}
-        <div className="relative min-h-[45vh] flex-1">
-          <MapaPlan
-            rutas={capaRutas}
-            paradas={capaParadas}
-            maquinas={capaMaquinas}
-            onClickMapa={(lat, lon) => void clicEnMapa(lat, lon)}
-            encuadreToken={encuadre}
+        {/* Las tablas que faltan se avisan aparte del error de carga: no es un
+            fallo, es que el esquema todavía no se corrió. Mismo trato que le da
+            el despacho a los acopios. */}
+        {(faltanAcopios || faltanOperadores) && (
+          <div className="mx-auto mb-3 w-full max-w-[1280px] px-3">
+            <p className="rounded-[10px] bg-[#fdf4e3] px-3 py-2 text-[12px] leading-tight text-st-detenida">
+              {faltanAcopios && (
+                <>
+                  Faltan los acopios: corre <code>supabase/acopios.sql</code> y{" "}
+                  <code>supabase/acopios-datos.sql</code>. Sin ellos no se puede
+                  escribir un renglón.{" "}
+                </>
+              )}
+              {faltanOperadores && (
+                <>
+                  No hay operadores en el registro de flota: los renglones van a
+                  quedar sin conductor hasta que se carguen.
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
+        {cargando ? (
+          <p className="px-4 py-10 text-center text-[12px] text-ink-3">
+            Cargando la planilla…
+          </p>
+        ) : (
+          <PlanillaVagones
+            jornada={jornada}
+            viajes={viajes}
+            acopios={acopios}
+            operadores={flota.operadores}
+            ocupado={ocupado}
+            onRegistrar={onRegistrar}
+            onCorregir={onCorregir}
+            onSalida={onSalida}
           />
-        </div>
+        )}
       </div>
-
-      {editando && (
-        <SelectorAcopios
-          maquina={{
-            id: editando.id,
-            codigo: editando.codigo,
-            nombre: editando.nombre,
-            color: editando.color || COLOR_DEFAULT,
-          }}
-          jornada={jornada}
-          acopios={acopios}
-          seleccion={(rutaDe.get(editando.id)?.paradas ?? []).map((p) => p.acopio_id)}
-          origen={(() => {
-            const m = maquinas.find((x) => x.maquina.id === editando.id);
-            return m?.posicion ? { lat: m.posicion.lat, lon: m.posicion.lon } : null;
-          })()}
-          onClose={() => setEditando(null)}
-          onGuardar={(ids) => guardarRuta(editando.id, ids)}
-        />
-      )}
-
-      {ficha && (
-        <MaquinaNodo
-          flota={flota}
-          nodos={fleet.map((f) => f.node)}
-          sitios={sitios}
-          instante={instante}
-          maquina={ficha.maquina}
-          onClose={() => setFicha(null)}
-          onChanged={cargarTodo}
-        />
-      )}
     </main>
   );
 }

@@ -381,14 +381,7 @@ export function distanciaRecta(
  */
 export { grafoVias };
 
-/** Acopio con su distancia recta a un punto, ordenados de cerca a lejos. */
-export function acopiosCercanos(
-  acopios: Acopio[],
-  desde: { lat: number; lon: number },
-  cuantos = 20
-): { acopio: Acopio; metros: number }[] {
-  return acopios
-    .map((acopio) => ({ acopio, metros: haversineM(desde, acopio) }))
-    .sort((a, b) => a.metros - b.metros)
-    .slice(0, cuantos);
-}
+/* Aquí vivía `acopiosCercanos`, que devolvía los N acopios más próximos. Lo
+   reemplazó `lotesCercanos` en `lib/acopios.ts`: el selector ofrece lotes, no
+   puntos sueltos, y una lista de puntos cercanos repetía el mismo lote tres
+   veces seguidas (ver la nota allá). */

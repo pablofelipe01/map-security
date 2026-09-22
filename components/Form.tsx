@@ -80,7 +80,16 @@ export function SelectorColor({
   );
 }
 
-/** Marco común de los diálogos: fondo que cierra al clic y tarjeta centrada. */
+/**
+ * Marco común de los diálogos: fondo que cierra al clic y tarjeta centrada.
+ *
+ * `fixed` Y NO `absolute`. Con `absolute` el diálogo se posiciona contra el
+ * documento, no contra la ventana: en las pantallas que caben enteras —la torre
+ * y la planeación, las dos `h-dvh`— da igual, pero la planilla se desplaza, y
+ * ahí el diálogo salía anclado arriba del todo. Tocar el renglón 20 abría un
+ * formulario que quedaba fuera de pantalla y parecía que el toque no había
+ * hecho nada. Fijo a la ventana sale donde está la persona, siempre.
+ */
 export function Dialogo({
   ancho = 420,
   bloqueado,
@@ -95,7 +104,7 @@ export function Dialogo({
 }) {
   return (
     <div
-      className="absolute inset-0 z-[1300] flex items-center justify-center bg-ink/15 p-4"
+      className="fixed inset-0 z-[1300] flex items-center justify-center bg-ink/15 p-4"
       onClick={() => {
         if (!bloqueado) onClose();
       }}
@@ -103,7 +112,10 @@ export function Dialogo({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width: ancho }}
-        className="card max-h-[calc(100vh-40px)] max-w-full overflow-y-auto p-4"
+        // `dvh` y no `vh` por lo mismo que el resto de la app: `100vh` mide la
+        // pantalla con la barra de URL desplegada, así que en celular el final
+        // del formulario —donde están Cancelar y Guardar— quedaba cortado.
+        className="card max-h-[calc(100dvh-40px)] max-w-full overflow-y-auto p-4"
       >
         {children}
       </div>

@@ -134,6 +134,55 @@ export function agruparPorLote(acopios: Acopio[]): GrupoLote[] {
     .map(([, g]) => g);
 }
 
+/**
+ * Los lotes más cercanos a un punto, cada uno completo y con la distancia de
+ * su acopio más próximo.
+ *
+ * Ofrecer los N ACOPIOS más cercanos —que es lo obvio— produce una lista donde
+ * el mismo lote aparece tres veces seguidas con números distintos: "B.3-P.8 ·
+ * 18", "B.3-P.8 · 17", "B.3-P.8 · 16". Leerla cuesta, y además no es la unidad
+ * en la que se decide: nadie manda un tractor al punto 17, lo manda al B.3-P.8.
+ * Por lote el mismo espacio ofrece seis destinos en vez de doce mitades.
+ *
+ * El lote va COMPLETO aunque algunos de sus puntos queden lejos: si se
+ * recortara a los cercanos, el botón que agrega el lote entero agregaría en
+ * realidad un pedazo, y el coordinador se enteraría en el campo.
+ */
+export function lotesCercanos(
+  acopios: Acopio[],
+  desde: { lat: number; lon: number },
+  cuantos = 6
+): { grupo: GrupoLote; metros: number }[] {
+  const mapa = new Map<string, GrupoLote>();
+
+  for (const a of acopios) {
+    const lote = a.lote?.trim() || null;
+    // Sin lote, cada punto va solo. Los 44 que el plano no rotuló están
+    // desperdigados por todo el predio: juntarlos en un grupo diría que son
+    // vecinos, que es justo lo único que este listado promete.
+    const k = lote ?? `￿${a.id}`;
+    let g = mapa.get(k);
+    if (!g) {
+      g = {
+        lote,
+        bloque: a.bloque?.trim() || null,
+        titulo: lote ?? a.codigo,
+        acopios: [],
+      };
+      mapa.set(k, g);
+    }
+    g.acopios.push(a);
+  }
+
+  return [...mapa.values()]
+    .map((grupo) => ({
+      grupo,
+      metros: Math.min(...grupo.acopios.map((a) => haversineM(desde, a))),
+    }))
+    .sort((x, y) => x.metros - y.metros)
+    .slice(0, cuantos);
+}
+
 /* ============================== buscar ============================== */
 
 /** Quita tildes y baja a minúsculas, para que "B.9" encuentre lo mismo que "b.9". */

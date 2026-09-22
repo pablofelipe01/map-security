@@ -113,12 +113,30 @@ interface Props {
   onOpenMachine: (nodeId: string) => void;
   fitToken: number;
   /**
+   * Punto buscado por coordenadas, o null si no hay ninguno.
+   *
+   * Se pasa un objeto NUEVO en cada búsqueda aunque las coordenadas sean las
+   * mismas: el efecto compara por referencia, así que volver a buscar el mismo
+   * punto vuelve a centrar el mapa. Buscar dos veces lo mismo suele significar
+   * "llévame otra vez allá" —la persona se movió mirando otra cosa—, y que el
+   * segundo intento no haga nada se lee como que el buscador se dañó.
+   */
+  punto?: PuntoBuscado | null;
+  /**
    * Entrega la instancia del mapa (y `null` al desmontarla) para que el
    * grabador de video pueda dibujar sobre ella y capturar su canvas. Es la
    * única fisura en el encapsulamiento del mapa, y existe porque el video tiene
    * que mostrar exactamente lo mismo que la pantalla: ver lib/video.ts.
    */
   onMap?: (map: MapLibreMap | null) => void;
+}
+
+/** Un punto puesto en el mapa a mano, con el texto con que se pidió. */
+export interface PuntoBuscado {
+  lat: number;
+  lon: number;
+  /** Lo que se muestra en el rótulo: las coordenadas ya normalizadas. */
+  etiqueta: string;
 }
 
 /**
@@ -295,6 +313,10 @@ export default function MapGL({
   onSelect,
   onOpenMachine,
   fitToken,
+  // Se renombra al desestructurar porque en este archivo ya hay una función
+  // `punto()` —la que arma los extremos de un rastro— y la prop la taparía
+  // dentro del componente.
+  punto: puntoBuscado,
   onMap,
 }: Props) {
   const divRef = useRef<HTMLDivElement | null>(null);
@@ -310,6 +332,8 @@ export default function MapGL({
   const replayRef = useRef<Map<string, Marker>>(new Map());
   const redRef = useRef<Map<string, Marker>>(new Map());
   const puestoRef = useRef<Map<string, Marker>>(new Map());
+  /** El punto buscado por coordenadas. Es uno solo: no se acumulan búsquedas. */
+  const puntoRef = useRef<Marker | null>(null);
   // Handlers frescos sin recrear el mapa.
   const cbRef = useRef({ onSelect, onOpenMachine, onMap });
   cbRef.current = { onSelect, onOpenMachine, onMap };
@@ -1067,6 +1091,63 @@ ${
     whenReady(encuadrar);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitToken]);
+
+  /* ---------------------- punto buscado por coordenadas ----------------------
+     La cruz del punto buscado NO es un marcador de máquina y tiene que verse
+     distinta a simple vista: lo que hay ahí no es un dato de la flota, es un
+     sitio que alguien escribió. Confundirlas sería lo peor que puede hacer esta
+     capa — un punto inventado que se lee como una posición medida.
+
+     Se centra con `easeTo` a un zoom fijo y no con `fitBounds`: un punto no
+     tiene extensión, así que no hay nada que encuadrar, y 17 es el zoom al que
+     se distinguen los lotes del predio. Si el mapa ya está más cerca, se
+     respeta — alguien que venía mirando a 19 no quiere que lo alejen. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!puntoBuscado) {
+      puntoRef.current?.remove();
+      puntoRef.current = null;
+      return;
+    }
+
+    const dibujar = () => {
+      if (!puntoRef.current) {
+        // Se arma con la API del DOM y no con `innerHTML` como los marcadores
+        // de máquina. Aquellos interpolan datos de la base; éste interpola algo
+        // que ACABA de escribir una persona en un campo de texto, y esa
+        // diferencia es la que decide entre `textContent` y una inyección.
+        const el = document.createElement("div");
+        el.className = "punto-buscado";
+
+        const cruz = document.createElement("div");
+        cruz.className = "pb-cruz";
+        cruz.setAttribute("aria-hidden", "true");
+
+        const label = document.createElement("div");
+        label.className = "pb-label";
+
+        el.append(cruz, label);
+        puntoRef.current = new Marker({ element: el, anchor: "center" })
+          .setLngLat([puntoBuscado.lon, puntoBuscado.lat])
+          .addTo(map);
+      } else {
+        puntoRef.current.setLngLat([puntoBuscado.lon, puntoBuscado.lat]);
+      }
+
+      const label = puntoRef.current.getElement().querySelector(".pb-label");
+      if (label) label.textContent = puntoBuscado.etiqueta;
+
+      map.easeTo({
+        center: [puntoBuscado.lon, puntoBuscado.lat],
+        zoom: Math.max(map.getZoom(), 17),
+        duration: 700,
+      });
+    };
+
+    whenReady(dibujar);
+  }, [puntoBuscado, whenReady]);
 
   return <div ref={divRef} className="absolute inset-0" />;
 }

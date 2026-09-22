@@ -68,6 +68,21 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
+### Las tres pantallas
+
+| Ruta | Qué contesta | Quién la usa |
+|---|---|---|
+| `/` | Dónde está y dónde estuvo la flota | Quien supervisa |
+| `/despacho` | Qué se reportó y qué salió hoy (**la planilla**) | El que organiza los vehículos, todo el día |
+| `/despacho/rutas` | A qué acopios va cada máquina | El coordinador, temprano |
+
+**La raíz sigue siendo el mapa.** Dentro del despacho, en cambio, manda la
+planilla: es la única pantalla que alguien tiene abierta permanentemente —cada
+reporte que entra por radio es un renglón—, mientras que la ruta de los
+tractores se arma una vez y no se vuelve a mirar. Quien escribe "despacho" va a
+anotar un reporte nueve de cada diez veces, así que la URL corta le toca a ésa y
+la planeación queda un nivel adentro.
+
 ### Variables (`.env.local`)
 
 | Variable | Estado |
@@ -299,6 +314,55 @@ copiados están en `.gitignore`: se regeneran desde la versión instalada de
 maplibre-gl para que no se desincronicen al actualizar la librería. Si alguna vez
 se levanta el server sin pasar por esos scripts, `npm run copiar-worker` lo arregla.
 
+### Buscar un punto por coordenadas
+
+Arriba a la izquierda del mapa hay un campo donde se pegan unas coordenadas y
+queda una cruz en ese punto. Es lo único que el mapa dibuja que **no** sale de la
+base: las coordenadas llegan de afuera —un reporte por radio, un WhatsApp, una
+ficha de campo— y hasta ahora no había forma de ver dónde caían.
+
+Parser en `lib/coords.ts`, campo en `components/BuscadorCoords.tsx`, la cruz en
+`components/MapGL.tsx` (prop `punto`).
+
+**Qué acepta:**
+
+```
+4°31'37.94"N 72°58'39.11"W      ← lo que escribe Google Earth
+4° 31' 37.94" N, 72° 58' 39.11" W
+4º31'37.94''N 72º58'39.11''W    ← con los símbolos que da el teclado
+N4°31' W72°58'                  ← letra delante, sin segundos
+4.526928, -72.977531            ← grados decimales
+72.977531W 4.526928N            ← al revés: lo dicen las letras
+```
+
+**La regla que manda: antes de adivinar, rechazar.** Un buscador de coordenadas
+que interpreta mal no falla de forma visible — dibuja un punto en otro lado con
+la misma cara de siempre, y alguien manda un tractor allá. Así que devuelve un
+error, nunca una suposición:
+
+| Entrada | Por qué se rechaza |
+|---|---|
+| `4,52 -72,97` | La coma es decimal o es separador; `4,52` puede ser un número o dos. Leído como grados y minutos daría un punto creíble a kilómetros del bueno. |
+| `4 31 37.94 N 72 58 39.11 W` | Sin `°` no se sabe si son grados/minutos/segundos o números sueltos. |
+| `-4°31'S 72°58'W` | El hemisferio está dicho dos veces (signo y letra) y no hay forma de saber cuál respetar. |
+| `4°61'N …` | 61 minutos no es otra forma de escribir 1°1′: es un error de tecleo. |
+| `4°31'N 5°58'N` | Dos veces el mismo eje. |
+
+La única inferencia que sí hace es aritmética, no adivinanza: si el primer
+número pasa de 90 no puede ser una latitud, así que venían en orden lon/lat.
+
+**Después de buscar muestra el punto en las dos notaciones**, grados y decimal.
+No es adorno: es cómo la persona comprueba que el buscador entendió lo que
+tecleó, antes de mandar a alguien para allá.
+
+**La marca es una cruz blanca, no un pin de máquina**, y a propósito: lo que hay
+ahí no es un dato medido sino un sitio que alguien escribió. Que se parecieran
+sería el mapa afirmando las dos cosas con la misma cara, que es justo de lo que
+el resto de esta app se cuida.
+
+Verificado con 23 casos (`lib/coords.ts`); el ejemplo de arriba va y vuelve
+idéntico.
+
 ### Bautizar la flota — paso pendiente
 
 La tabla `nodes` sólo trae nombres de fábrica (`"Meshtastic 1d35"`) y ninguno de
@@ -506,7 +570,7 @@ código, a propósito.
   una máquina —en la lista o en el mapa— el panel muestra su ficha de ese día
   (recorrido, labor, detenciones, jornada y quién la manejó) y desde ahí se
   entra a su universo. Doble clic en el marcador del replay hace lo mismo.
-- **Universo de máquina** (`#/m/<node_id>`, o `#/m/<node_id>/<YYYY-MM-DD>`):
+- **Universo de máquina** (`#/m/<node_id>`, o `…/<YYYY-MM-DD>`):
   totales de 14 días, gráficas de km/día y horas en labor/día, y tabla de
   jornadas con primer y último fix. Con fecha, la ventana cierra ese día y no
   hoy: se omite el estado en vivo —que es un dato del ahora— y se resalta el día
@@ -570,6 +634,63 @@ Cómo funciona, y por qué así:
   que la exportación no depende de ir exactamente a 30 cuadros por segundo. El
   respaldo por `MediaRecorder` sí, y por eso el bucle consulta `tiempoReal`.
 
+### Planilla de vagones (`/despacho`)
+
+La hoja de papel de **Logística y Transporte** que llena a mano el que organiza
+los vehículos, pasada a la app. Un renglón es un **viaje**: entra un reporte de
+que hay vagones llenos en un acopio, se manda un conductor, y de paso se le dice
+dónde dejar un vagón vacío.
+
+Esquema en `supabase/vagones.sql` (depende de `acopios.sql` y `flota.sql`),
+datos en `lib/vagones.ts`, pantalla en `components/PlanillaVagones.tsx`.
+
+**Las ocho columnas del papel están una a una**, en el mismo orden y con el
+mismo nombre. No es nostalgia: el que la llena tiene el modelo mental de la hoja
+metido en la mano, y una pantalla que reordene las casillas le cobra atención
+que en ese momento no tiene.
+
+| Columna del papel | Campo |
+|---|---|
+| No. | `consecutivo` — lo asigna la base con un lock por jornada, no el cliente |
+| *(la H y la C escritas a mano)* | `tipo_fruto`: Híbrido o Comercial |
+| Hora reporte | `reportado_en` — se sella solo al registrar |
+| Vagones llenos (bloque + acopio) | `origen_acopio_id` |
+| Hora de salida | `salida_en` — `null` = todavía no sale |
+| Ubicación de vagones (bloque + acopio) | `destino_acopio_id` |
+| # Vagón a ubicar | `vagon` |
+| Conductor | `operador_id` → tabla `operadores` del registro de flota |
+| Observaciones | `observaciones` |
+
+**Lo único que la app agrega sobre el papel, y es la razón de pasarla:**
+
+- **El acopio se comprueba.** En la hoja "BLOQUE 334, ACOPIO 68" son dos números
+  que nadie verifica; si el bloque no existe, se descubre cuando el tractor
+  llega y no hay nada. Acá se resuelven contra la tabla mientras se escribe
+  (`resolverAcopio`) y debajo de las casillas aparece el código completo o el
+  aviso de que no existe. **Se sigue escribiendo como en el papel** —dos
+  cuadritos de dos dígitos— y no con el selector de acopios del despacho: ese es
+  para el coordinador que arma una ruta mirando el mapa; éste es para el señor
+  que tiene el radio en la oreja.
+- **El "No." no se repite ni se salta.** En el papel lo lleva la mano del que
+  escribe; acá es único por jornada, así que "mira el renglón 7 de ayer" es el
+  mismo renglón para todos.
+- **La hora no se escribe.** El reporte se registra cuando entra y la base lo
+  sella. Se puede corregir después, para pasar renglones viejos.
+- **El conductor sale del maestro de `operadores`**, no de texto libre: "Edgar"
+  y "edgar" son dos personas distintas para cualquier conteo.
+
+**Por qué es una tabla aparte y no un campo más en `asignaciones_recoleccion`.**
+La planeación del despacho es una **intención** y su sujeto es la máquina ("a
+qué acopios va este tractor hoy, en qué orden"). Esta hoja es un **hecho**, su
+sujeto es el viaje, y los renglones llegan de a uno a lo largo del día sin saber
+todavía quién los va a atender. Juntarlas obligaría a que el que anota un
+reporte a las 6 a.m. ya sepa qué máquina lo va a hacer. Conviven, y hablan de
+los mismos acopios.
+
+**Qué no hace.** No asigna máquina ni propone ruta —eso es `/despacho/rutas`— y no
+lleva inventario de vagones: se anota el número, no dónde quedó cada uno. La
+columna `vagon` es el enganche si algún día hace falta.
+
 ## Lo que el patrón tiene y aquí no
 
 Estos bloques del demo se omiten porque **no existe la fuente**, y mostrarlos en
@@ -608,17 +729,26 @@ nodo no reportó posición nueva); `alt_m`, `pdop`, `rssi` y `battery` pueden ve
 ## Estructura
 
 ```
-app/          layout.tsx · page.tsx (orquestación + ruta #/m/) · globals.css
+app/          layout.tsx · page.tsx (el mapa + ruta #/m/) · globals.css
+              despacho/ (la planilla de vagones de Logística y Transporte)
+              despacho/rutas/ (a qué acopios va cada máquina hoy)
               api/porteria/ (lee Airtable con el token del servidor)
 components/   MapGL · TopBar · SidePanel · ReplayBar · MachineView · BarChart
+              BuscadorCoords (punto por coordenadas sobre el mapa)
               VideoModal (diálogo de exportación de video)
               PorteriaPanel (ingresos registrados en un puesto fijo)
+              MapaPlan · SelectorAcopios · AsignacionModal · FlotaAdmin · Form
+              PlanillaVagones + CasillasAcopio (la hoja de vagones)
 lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               puestos (nodos fijos: portería) · red (estado de la malla mesh)
               porteria (tipos + cliente de /api/porteria)
               dispositivos (nodos con aparato distinto: Wio Tracker)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
+              acopios (los 845 puntos) · planeacion (la ruta del día)
+              vagones (la planilla: viajes, y bloque+acopio → acopio)
+              registro (flota viva: máquinas, operadores, relevos)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
+              coords (leer coordenadas escritas a mano)
               icons (SVG de máquinas) · queries · geo · ranges · types
 public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
               acopios-guaicaramo.geojson (845 acopios, capa fija)
@@ -631,7 +761,16 @@ scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
 ## Seguridad
 
 Solo se usa la **anon key** (lectura pública vía RLS). No hay `service_role` en
-el bundle. La app nunca escribe en la base.
+el bundle.
+
+**La app sí escribe**, y la anon key es pública —va en el bundle del navegador—,
+así que hoy cualquiera con la URL puede planear una jornada o registrar un
+renglón de la planilla. Las policies de `acopios.sql`, `flota.sql` y
+`vagones.sql` lo dicen en su encabezado y son las primeras que hay que pasar a
+`to authenticated` el día que se monte login. Lo que **no** se puede es borrar:
+ninguna de esas tablas tiene policy de `DELETE`, y se les revoca `TRUNCATE`
+explícitamente porque ése no pasa por RLS. Una hoja de despacho de la que
+desaparecen renglones no sirve para preguntar qué pasó ayer.
 
 El token de Airtable de la portería (`AIRTABLE_GUAICARAMO_VISITAS_API_KEY`) sí
 es sensible —permite escribir sobre datos de personas—, así que vive únicamente

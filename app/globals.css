@@ -313,6 +313,69 @@ body {
   white-space: nowrap;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
+/* ---- Punto buscado por coordenadas ----
+   UNA CRUZ, NO UN PIN, y de un color que no esta en la paleta de estados de la
+   flota. Lo que hay ahi no es una maquina ni una medicion: es un sitio que
+   alguien escribio en un campo de texto. Si se pareciera a un marcador de
+   maquina, el mapa estaria afirmando con la misma cara un dato medido y una
+   coordenada tecleada, que es justo lo que el resto de esta app se cuida de no
+   hacer. La cruz ademas marca el punto EXACTO —se cruza en el pixel— mientras
+   que un pin apunta con su punta y se lee con error. */
+.punto-buscado {
+  position: relative;
+  width: 0;
+  height: 0;
+}
+.pb-cruz {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px rgba(26, 26, 51, 0.45), 0 2px 6px rgba(0, 0, 0, 0.4);
+  background: rgba(255, 255, 255, 0.12);
+}
+/* Los dos brazos de la cruz, dibujados con los pseudoelementos del mismo nodo:
+   se cruzan en el centro geometrico del circulo, que es la coordenada. */
+.pb-cruz::before,
+.pb-cruz::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+}
+.pb-cruz::before {
+  width: 2px;
+  height: 46px;
+  transform: translate(-50%, -50%);
+}
+.pb-cruz::after {
+  width: 46px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+.pb-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translateX(-50%);
+  margin-top: 28px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: rgba(26, 26, 51, 0.85);
+  color: #fff;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
 .replay-marker .mk {
   width: 40px;
   height: 40px;
@@ -409,6 +472,17 @@ input[type="range"].replay::-moz-range-thumb {
   .btn-chip {
     min-height: 36px;
     @apply px-3;
+  }
+
+  /* Los campos miden ~36 px de alto, que con el dedo se acierta pero apretando.
+     En la planilla de vagones se llenan ocho seguidos por renglon y varias
+     veces por hora, muchas veces de pie y con guante: ahi los 8 px de mas son
+     la diferencia entre anotar el reporte y volver al papel. El texto sube a
+     16 px porque por debajo de eso Safari en iOS hace zoom solo al enfocar el
+     campo, y deja la pagina descuadrada al salir. */
+  .field {
+    min-height: 44px;
+    font-size: 16px;
   }
 
   /* Los controles de zoom los deja el tema en 30 px (ver la regla de arriba, la
