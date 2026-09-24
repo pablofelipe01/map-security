@@ -34,6 +34,13 @@ interface Props {
   /** Sin esto, no llenar las casillas es un error; con esto, es lo normal. */
   opcional?: boolean;
   disabled?: boolean;
+  /**
+   * Presentación de formulario vertical: rótulo legible, cada casilla con su
+   * nombre encima y las dos repartiéndose el ancho también en escritorio. El
+   * placeholder solo desaparece en cuanto se escribe, y en un formulario que se
+   * llena de arriba abajo el que vuelve a mirar tiene que saber cuál era cuál.
+   */
+  amplio?: boolean;
 }
 
 export default function CasillasAcopio({
@@ -45,6 +52,7 @@ export default function CasillasAcopio({
   label,
   opcional,
   disabled,
+  amplio,
 }: Props) {
   const vacio = !bloque.trim() && !num.trim();
 
@@ -72,28 +80,67 @@ export default function CasillasAcopio({
 
   return (
     <div>
-      <span className="t-label mb-1 block">{label}</span>
+      {amplio ? (
+        <>
+          <span className="mb-1.5 block text-[13px] font-bold text-ink">
+            {label}
+            {opcional && (
+              <span className="ml-1.5 font-normal text-ink-3">(opcional)</span>
+            )}
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block text-[11px] text-ink-3">Bloque</span>
+              <Casilla
+                valor={bloque}
+                placeholder="Ej. 334"
+                amplio
+                disabled={disabled}
+                onChange={(v) => emitir(v, num)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[11px] text-ink-3">Acopio</span>
+              <Casilla
+                valor={num}
+                placeholder="Ej. 68"
+                amplio
+                disabled={disabled}
+                onChange={(v) => emitir(bloque, v)}
+              />
+            </label>
+          </div>
+        </>
+      ) : (
+        <>
+          <span className="t-label mb-1 block">{label}</span>
 
-      {/* En celular las dos casillas se reparten el ancho disponible (con tope,
-          para que no queden dos campos gigantes para dos dígitos); en
-          escritorio vuelven a medir lo que mide el dato. */}
-      <div className="flex items-center gap-1.5">
-        <Casilla
-          valor={bloque}
-          placeholder="Bloque"
-          disabled={disabled}
-          onChange={(v) => emitir(v, num)}
-        />
-        <span className="text-ink-3">·</span>
-        <Casilla
-          valor={num}
-          placeholder="Acopio"
-          disabled={disabled}
-          onChange={(v) => emitir(bloque, v)}
-        />
-      </div>
+          {/* En celular las dos casillas se reparten el ancho disponible (con
+              tope, para que no queden dos campos gigantes para dos dígitos); en
+              escritorio vuelven a medir lo que mide el dato. */}
+          <div className="flex items-center gap-1.5">
+            <Casilla
+              valor={bloque}
+              placeholder="Bloque"
+              disabled={disabled}
+              onChange={(v) => emitir(v, num)}
+            />
+            <span className="text-ink-3">·</span>
+            <Casilla
+              valor={num}
+              placeholder="Acopio"
+              disabled={disabled}
+              onChange={(v) => emitir(bloque, v)}
+            />
+          </div>
+        </>
+      )}
 
-      <div className="mt-1 min-h-[14px] text-[10px] leading-tight">
+      <div
+        className={`mt-1 min-h-[14px] leading-tight ${
+          amplio ? "text-[11.5px]" : "text-[10px]"
+        }`}
+      >
         {vacio ? (
           <span className="text-ink-3">
             {opcional ? "Sin ubicación de vagón" : "Escribe bloque y acopio"}
@@ -126,17 +173,23 @@ export default function CasillasAcopio({
 function Casilla({
   valor,
   placeholder,
+  amplio,
   disabled,
   onChange,
 }: {
   valor: string;
   placeholder: string;
+  amplio?: boolean;
   disabled?: boolean;
   onChange: (v: string) => void;
 }) {
   return (
     <input
-      className="field mono min-w-0 flex-1 text-center md:max-w-[62px] md:flex-none"
+      className={
+        amplio
+          ? "field mono text-center"
+          : "field mono min-w-0 flex-1 text-center md:max-w-[62px] md:flex-none"
+      }
       value={valor}
       placeholder={placeholder}
       inputMode="numeric"

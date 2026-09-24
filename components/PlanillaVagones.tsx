@@ -78,8 +78,18 @@ export default function PlanillaVagones({
   const vacio = viajes.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-3 pb-10">
-      {/* ------------------------- resumen del día -------------------------
+    <div className="mx-auto w-full max-w-[1600px] px-3 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      {/* EN PANTALLA ANCHA, FORMULARIO A LA IZQUIERDA Y HOJA A LA DERECHA. Apilados,
+          en un monitor el formulario deja media pantalla vacía y la hoja queda
+          debajo del pliegue. Lado a lado se anota sin perder de vista lo que ya
+          está. Sólo desde `xl`: por debajo la tabla no cabe al lado del
+          formulario y aparecería el desplazamiento horizontal.
+
+          En celular y tablet el orden es resumen → formulario → hoja; en `xl`
+          el formulario ocupa las dos filas de la izquierda. */}
+      <div className="xl:grid xl:grid-cols-[400px_minmax(0,1fr)] xl:grid-rows-[auto_1fr] xl:gap-x-4">
+        <div className="xl:col-start-2 xl:row-start-1">
+          {/* ------------------------- resumen del día -------------------------
           LOS CUATRO EN UNA FILA, también en celular. En dos por dos ocupaban
           cuatro renglones de alto y empujaban el formulario fuera de la
           pantalla — y el gesto del día no es mirar el resumen, es anotar un
@@ -89,78 +99,52 @@ export default function PlanillaVagones({
           No se esconde ninguno: "sin salir" es el número por el que alguien
           abre esta pantalla, y los otros tres son el contexto que lo hace
           significar algo. */}
-      <div className="mb-3 grid grid-cols-4 gap-1.5 sm:gap-2">
-        <Tile label="Renglones" valor={resumen.total} />
-        <Tile
-          label="Sin salir"
-          valor={resumen.pendientes}
-          alerta={resumen.pendientes > 0}
-        />
-        <Tile label="Híbrido" valor={resumen.hibrido} />
-        <Tile label="Comercial" valor={resumen.comercial} />
-      </div>
-
-      {resumen.sinConductor > 0 && (
-        <p className="mb-3 rounded-[10px] bg-[#fdf4e3] px-3 py-2 text-[11px] leading-tight text-st-detenida">
-          {resumen.sinConductor === 1
-            ? "Hay 1 renglón que ya salió sin conductor anotado."
-            : `Hay ${resumen.sinConductor} renglones que ya salieron sin conductor anotado.`}{" "}
-          Se puede completar después: toca el renglón.
-        </p>
-      )}
-
-      <FilaNueva
-        jornada={jornada}
-        acopios={acopios}
-        operadores={operadores}
-        ocupado={ocupado}
-        onRegistrar={onRegistrar}
-      />
-
-      {vacio && (
-        <p className="card mt-3 px-3 py-8 text-center text-[12px] text-ink-3">
-          Todavía no hay renglones en esta jornada.
-        </p>
-      )}
-
-      {/* ---------------------- la hoja en celular ---------------------- */}
-      {!vacio && (
-        <ul className="mt-3 flex flex-col gap-2 md:hidden">
-          {viajes.map((v) => (
-            <Tarjeta
-              key={v.id}
-              viaje={v}
-              ocupado={ocupado}
-              onAbrir={() => setEditando(v)}
-              onSalida={() => onSalida(v.id)}
+          <div className="mb-3 grid grid-cols-4 gap-1.5 sm:gap-2">
+            <Tile label="Renglones" valor={resumen.total} />
+            <Tile
+              label="Sin salir"
+              valor={resumen.pendientes}
+              alerta={resumen.pendientes > 0}
             />
-          ))}
-        </ul>
-      )}
+            <Tile label="Híbrido" valor={resumen.hibrido} />
+            <Tile label="Comercial" valor={resumen.comercial} />
+          </div>
 
-      {/* --------------------- la hoja en escritorio --------------------- */}
-      {!vacio && (
-        <div className="card mt-3 hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[900px] border-collapse text-[12px]">
-            <thead>
-              <tr className="border-b border-border">
-                <Th ancho={38}>No.</Th>
-                <Th ancho={34} titulo="Híbrido o Comercial">
-                  Fruto
-                </Th>
-                <Th ancho={60}>Reporte</Th>
-                <Th ancho={150}>Vagones llenos</Th>
-                <Th ancho={86}>Salida</Th>
-                <Th ancho={150}>Ubicación de vagones</Th>
-                <Th ancho={60}># Vagón</Th>
-                <Th ancho={120}>Conductor</Th>
-                <Th>Observaciones</Th>
-              </tr>
-            </thead>
+          {resumen.sinConductor > 0 && (
+            <p className="mb-3 rounded-[10px] bg-[#fdf4e3] px-3 py-2 text-[11px] leading-tight text-st-detenida">
+              {resumen.sinConductor === 1
+                ? "Hay 1 renglón que ya salió sin conductor anotado."
+                : `Hay ${resumen.sinConductor} renglones que ya salieron sin conductor anotado.`}{" "}
+              Se puede completar después: toca el renglón.
+            </p>
+          )}
+        </div>
 
-            <tbody>
+        {/* Pegado bajo la cabecera en `xl`, con su propio desplazamiento si la
+          ventana es baja: el botón de registrar no puede quedar fuera de
+          alcance mientras se lee la hoja. */}
+        <div className="mb-3 xl:sticky xl:top-[72px] xl:col-start-1 xl:row-span-2 xl:row-start-1 xl:mb-0 xl:max-h-[calc(100dvh-88px)] xl:self-start xl:overflow-y-auto">
+          <FilaNueva
+            jornada={jornada}
+            acopios={acopios}
+            operadores={operadores}
+            ocupado={ocupado}
+            onRegistrar={onRegistrar}
+          />
+        </div>
+
+        <div className="min-w-0 xl:col-start-2 xl:row-start-2">
+          {vacio && (
+            <p className="card px-3 py-8 text-center text-[12px] text-ink-3">
+              Todavía no hay renglones en esta jornada.
+            </p>
+          )}
+
+          {/* ---------------------- la hoja en celular ---------------------- */}
+          {!vacio && (
+            <ul className="flex flex-col gap-2 md:hidden">
               {viajes.map((v) => (
-                <Fila
+                <Tarjeta
                   key={v.id}
                   viaje={v}
                   ocupado={ocupado}
@@ -168,10 +152,45 @@ export default function PlanillaVagones({
                   onSalida={() => onSalida(v.id)}
                 />
               ))}
-            </tbody>
-          </table>
+            </ul>
+          )}
+
+          {/* --------------------- la hoja en escritorio --------------------- */}
+          {!vacio && (
+            <div className="card hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[820px] border-collapse text-[12px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <Th ancho={38}>No.</Th>
+                    <Th ancho={34} titulo="Híbrido o Comercial">
+                      Fruto
+                    </Th>
+                    <Th ancho={60}>Reporte</Th>
+                    <Th ancho={150}>Vagones llenos</Th>
+                    <Th ancho={86}>Salida</Th>
+                    <Th ancho={150}>Ubicación de vagones</Th>
+                    <Th ancho={60}># Vagón</Th>
+                    <Th ancho={120}>Conductor</Th>
+                    <Th>Observaciones</Th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {viajes.map((v) => (
+                    <Fila
+                      key={v.id}
+                      viaje={v}
+                      ocupado={ocupado}
+                      onAbrir={() => setEditando(v)}
+                      onSalida={() => onSalida(v.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {editando && (
         <DialogoViaje
@@ -264,8 +283,10 @@ function Tile({
     // `tile` trae `p-3`; en celular se aprieta a `p-2` para que los cuatro
     // quepan en una fila de 390 px sin partir el rótulo. El número baja de 22 a
     // 18 px por lo mismo, y vuelve a su tamaño en cuanto hay ancho.
-    <div className="tile p-2 sm:p-3">
-      <div className="t-label">{label}</div>
+    <div className="tile min-w-0 p-2 sm:p-3">
+      <div className="t-label truncate" title={label}>
+        {label}
+      </div>
       <div
         className={`t-value text-[18px] sm:text-[22px] ${
           alerta ? "text-st-detenida" : ""
@@ -353,7 +374,9 @@ function Tarjeta({
 
         <Dato label="Conductor">
           {viaje.operador_nombre ? (
-            <span className="text-[12.5px] text-ink">{viaje.operador_nombre}</span>
+            <span className="text-[12.5px] text-ink">
+              {viaje.operador_nombre}
+            </span>
           ) : (
             <span
               className={`text-[12.5px] ${
@@ -367,7 +390,9 @@ function Tarjeta({
 
         {viaje.observaciones && (
           <Dato label="Obs.">
-            <span className="text-[12px] text-ink-2">{viaje.observaciones}</span>
+            <span className="text-[12px] text-ink-2">
+              {viaje.observaciones}
+            </span>
           </Dato>
         )}
       </button>
@@ -486,7 +511,11 @@ function Fila({
 
       <td className="px-2 py-1.5">
         {viaje.destino_acopio_id ? (
-          <Sitio bloque={destinoB} num={destinoN} codigo={viaje.destino_codigo} />
+          <Sitio
+            bloque={destinoB}
+            num={destinoN}
+            codigo={viaje.destino_codigo}
+          />
         ) : (
           <span className="text-ink-3">—</span>
         )}
@@ -552,10 +581,12 @@ const BORRADOR_VACIO: Borrador = {
  * campo obligatorio ahí es la forma más rápida de que alguien escriba
  * cualquiera con tal de guardar.
  *
- * EN CELULAR ES UNA REJILLA DE DOS COLUMNAS, no la fila que se desborda. Casi
- * todo ocupa el ancho entero; lo único que va en pareja son el número de vagón
- * y el conductor, que son cortos y se llenan juntos. De `md` para arriba vuelve
- * a ser una fila que envuelve, que es como se lee al lado de la hoja de papel.
+ * ES UN FORMULARIO VERTICAL DE LOS DE SIEMPRE: una pregunta por renglón, el
+ * rótulo encima en letra que se lee sin acercarse y los opcionales marcados
+ * como tales. La fila que envolvía en escritorio se parecía más a la hoja, pero
+ * obligaba a buscar con la vista dónde seguía; de arriba abajo no hay que
+ * buscar nada. Tiene tope de ancho porque un campo de 1200 px para dos dígitos
+ * se lee peor, no mejor.
  */
 function FilaNueva({
   jornada,
@@ -607,21 +638,29 @@ function FilaNueva({
   };
 
   return (
-    <div className="card p-3">
-      <div className="panel-title mb-2">Reporte nuevo</div>
+    <form
+      className="card w-full max-w-[560px] p-4 xl:max-w-none"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (listo) registrar();
+      }}
+    >
+      <h2 className="mb-4 text-[15px] font-extrabold text-ink">
+        Reporte nuevo
+      </h2>
 
-      <div className="grid grid-cols-2 gap-x-3 gap-y-3 md:flex md:flex-wrap md:items-start md:gap-x-4">
-        <div className="col-span-2 md:col-auto">
-          <span className="t-label mb-1 block">Fruto</span>
-          {/* Los dos chips se reparten el ancho en celular: con el dedo, dos
-              botones grandes lado a lado se aciertan sin mirar. */}
-          <div className="flex gap-1">
+      <div className="flex flex-col gap-4">
+        <Pregunta label="Fruto" grupo>
+          {/* Los dos chips se reparten el ancho: con el dedo, dos botones
+              grandes lado a lado se aciertan sin mirar. */}
+          <div className="grid grid-cols-2 gap-2">
             {TIPOS_FRUTO.map((t) => (
               <button
                 key={t.valor}
                 type="button"
                 onClick={() => puso({ tipo_fruto: t.valor })}
-                className={`btn-chip flex-1 md:flex-none ${
+                aria-pressed={b.tipo_fruto === t.valor}
+                className={`btn-chip min-h-[40px] text-[13px] ${
                   b.tipo_fruto === t.valor ? "btn-chip-solid" : ""
                 }`}
               >
@@ -629,89 +668,125 @@ function FilaNueva({
               </button>
             ))}
           </div>
-        </div>
+        </Pregunta>
 
-        <div className="col-span-2 md:col-auto">
-          <CasillasAcopio
-            label="Vagones llenos"
-            bloque={b.origenB}
-            num={b.origenN}
-            acopios={acopios}
-            disabled={guardando}
-            onChange={(bl, n) => puso({ origenB: bl, origenN: n })}
-            onResuelto={(a) => puso({ origen: a })}
-          />
-        </div>
+        <CasillasAcopio
+          label="Vagones llenos"
+          amplio
+          bloque={b.origenB}
+          num={b.origenN}
+          acopios={acopios}
+          disabled={guardando}
+          onChange={(bl, n) => puso({ origenB: bl, origenN: n })}
+          onResuelto={(a) => puso({ origen: a })}
+        />
 
-        <div className="col-span-2 md:col-auto">
-          <CasillasAcopio
-            label="Ubicación de vagones"
-            bloque={b.destinoB}
-            num={b.destinoN}
-            acopios={acopios}
-            opcional
-            disabled={guardando}
-            onChange={(bl, n) => puso({ destinoB: bl, destinoN: n })}
-            onResuelto={(a) => puso({ destino: a })}
-          />
-        </div>
+        <CasillasAcopio
+          label="Ubicación de vagones"
+          amplio
+          bloque={b.destinoB}
+          num={b.destinoN}
+          acopios={acopios}
+          opcional
+          disabled={guardando}
+          onChange={(bl, n) => puso({ destinoB: bl, destinoN: n })}
+          onResuelto={(a) => puso({ destino: a })}
+        />
 
-        {/* Vagón y conductor van en pareja: son los dos campos cortos y se
-            llenan en el mismo momento, cuando ya se sabe quién va. */}
-        <div>
-          <span className="t-label mb-1 block"># Vagón</span>
+        <Pregunta
+          label="# Vagón"
+          opcional
+          ayuda={
+            vagonHuerfano ? (
+              <span className="text-st-alerta">
+                Falta la ubicación de vagones de arriba.
+              </span>
+            ) : (
+              "Sólo si hay ubicación de vagones."
+            )
+          }
+        >
           <input
-            className="field mono text-center md:w-[82px]"
+            className="field mono max-w-[160px]"
             value={b.vagon}
             inputMode="numeric"
             autoComplete="off"
             disabled={guardando}
             onChange={(e) => puso({ vagon: e.target.value })}
           />
-          <span className="mt-1 block min-h-[14px] text-[10px] leading-tight text-st-alerta">
-            {vagonHuerfano ? "Falta dónde ubicarlo." : ""}
-          </span>
-        </div>
+        </Pregunta>
 
-        <div>
-          <span className="t-label mb-1 block">Conductor</span>
+        <Pregunta
+          label="Conductor"
+          opcional
+          ayuda="Se puede dejar para después."
+        >
           <SelectOperador
             valor={b.operador_id}
             operadores={operadores}
             disabled={guardando}
             onChange={(v) => puso({ operador_id: v })}
           />
-          <span className="mt-1 block min-h-[14px] text-[10px] leading-tight text-ink-3">
-            Se puede dejar para después.
-          </span>
-        </div>
+        </Pregunta>
 
-        <div className="col-span-2 min-w-[180px] md:flex-1">
-          <span className="t-label mb-1 block">Observaciones</span>
-          <input
+        <Pregunta label="Observaciones" opcional>
+          <textarea
             className="field w-full"
+            rows={2}
             value={b.observaciones}
             disabled={guardando}
             onChange={(e) => puso({ observaciones: e.target.value })}
           />
-        </div>
-
-        {/* Ancho completo en celular —es la acción de la pantalla y se toca con
-            el pulgar— y a la medida en escritorio, donde comparte fila. */}
-        <div className="col-span-2 md:col-auto md:self-end md:pb-[18px]">
-          <button
-            type="button"
-            className="btn md:w-auto md:px-4"
-            disabled={!listo}
-            onClick={registrar}
-          >
-            {guardando ? "Registrando…" : "Registrar renglón"}
-          </button>
-        </div>
+        </Pregunta>
       </div>
 
       {error && <Aviso>{error}</Aviso>}
-    </div>
+
+      <button type="submit" className="btn mt-5" disabled={!listo}>
+        {guardando ? "Registrando…" : "Registrar renglón"}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Una pregunta del formulario: rótulo arriba, campo, ayuda debajo.
+ *
+ * No es `Campo` (de `./Form`) porque ése usa el rótulo de 9 px en mayúsculas de
+ * los diálogos, y este formulario se llena de pie, a veces con el radio en la
+ * mano: el rótulo tiene que leerse de un vistazo.
+ */
+function Pregunta({
+  label,
+  opcional,
+  ayuda,
+  grupo,
+  children,
+}: {
+  label: string;
+  opcional?: boolean;
+  ayuda?: React.ReactNode;
+  /** Varios botones en vez de un campo: un `<label>` alrededor mandaría el
+   *  toque del rótulo al primero de ellos. */
+  grupo?: boolean;
+  children: React.ReactNode;
+}) {
+  const Caja = grupo ? "div" : "label";
+  return (
+    <Caja className="block">
+      <span className="mb-1.5 block text-[13px] font-bold text-ink">
+        {label}
+        {opcional && (
+          <span className="ml-1.5 font-normal text-ink-3">(opcional)</span>
+        )}
+      </span>
+      {children}
+      {ayuda && (
+        <span className="mt-1 block text-[11.5px] leading-tight text-ink-3">
+          {ayuda}
+        </span>
+      )}
+    </Caja>
   );
 }
 
@@ -739,12 +814,12 @@ function SelectOperador({
       operadores
         .filter((o) => o.activo)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-    [operadores]
+    [operadores],
   );
 
   return (
     <select
-      className="field md:w-[150px]"
+      className="field"
       value={valor}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
@@ -797,12 +872,12 @@ function DialogoViaje({
   const [origenB, setOrigenB] = useState(o0b);
   const [origenN, setOrigenN] = useState(o0n);
   const [origen, setOrigen] = useState<Acopio | null>(
-    acopios.find((a) => a.id === viaje.origen_acopio_id) ?? null
+    acopios.find((a) => a.id === viaje.origen_acopio_id) ?? null,
   );
   const [destinoB, setDestinoB] = useState(d0b);
   const [destinoN, setDestinoN] = useState(d0n);
   const [destino, setDestino] = useState<Acopio | null>(
-    acopios.find((a) => a.id === viaje.destino_acopio_id) ?? null
+    acopios.find((a) => a.id === viaje.destino_acopio_id) ?? null,
   );
   const [vagon, setVagon] = useState(viaje.vagon ?? "");
   const [operador, setOperador] = useState(viaje.operador_id ?? "");
@@ -962,7 +1037,9 @@ function DialogoViaje({
         />
       </Campo>
 
-      {(horaMala || salidaMala) && <Aviso>Revisa las horas: no se entienden.</Aviso>}
+      {(horaMala || salidaMala) && (
+        <Aviso>Revisa las horas: no se entienden.</Aviso>
+      )}
       {error && <Aviso>{error}</Aviso>}
 
       {/* En celular el par de botones se reparte el ancho; guardar va a la
@@ -979,7 +1056,9 @@ function DialogoViaje({
         <button
           type="button"
           className="btn"
-          disabled={guardando || !origen || vagonHuerfano || horaMala || salidaMala}
+          disabled={
+            guardando || !origen || vagonHuerfano || horaMala || salidaMala
+          }
           onClick={guardar}
         >
           {guardando ? "Guardando…" : "Guardar"}

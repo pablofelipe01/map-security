@@ -76,7 +76,7 @@ export default function DespachoPage() {
       setViajes(hoja);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "No se pudo cargar la planilla."
+        e instanceof Error ? e.message : "No se pudo cargar la planilla.",
       );
     } finally {
       setCargando(false);
@@ -114,7 +114,7 @@ export default function DespachoPage() {
         setOcupado(false);
       }
     },
-    [cargarHoja]
+    [cargarHoja],
   );
 
   // Los errores de estas tres suben al formulario que las llamó, que es donde
@@ -122,12 +122,13 @@ export default function DespachoPage() {
   // abierto encima, no lo ve nadie.
   const onRegistrar = useCallback(
     (v: ViajeNuevo) => tras(() => registrarViaje(v)),
-    [tras]
+    [tras],
   );
 
   const onCorregir = useCallback(
-    (id: string, cambios: ViajeCambios) => tras(() => corregirViaje(id, cambios)),
-    [tras]
+    (id: string, cambios: ViajeCambios) =>
+      tras(() => corregirViaje(id, cambios)),
+    [tras],
   );
 
   /** El clic de "Marcar salida" no tiene formulario donde mostrar un error. */
@@ -136,10 +137,12 @@ export default function DespachoPage() {
       try {
         await tras(() => marcarSalida(id));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "No se pudo marcar la salida.");
+        setError(
+          e instanceof Error ? e.message : "No se pudo marcar la salida.",
+        );
       }
     },
-    [tras]
+    [tras],
   );
 
   /* --------------------------- pantalla --------------------------- */
@@ -148,14 +151,22 @@ export default function DespachoPage() {
   const faltanOperadores = !cargando && !error && flota.operadores.length === 0;
 
   return (
-    <main className="flex min-h-[100dvh] flex-col bg-bg">
+    // LA PÁGINA SE DESPLAZA SOLA. El `body` está fijo a la pantalla con
+    // `overflow: hidden` (ver globals.css) porque la torre y la planeación son
+    // mapas a pantalla completa; con `min-h` esta hoja crecía por debajo del
+    // borde y no había cómo llegar al botón de registrar. `h-dvh` +
+    // `overflow-y-auto` la vuelve su propio contenedor de desplazamiento.
+    <main className="h-dvh overflow-y-auto overscroll-contain bg-bg">
       {/* La barra se arma en dos renglones en celular y en uno en escritorio.
           Amontonar los enlaces, el título y el selector de día en una sola
           línea de 390 px los parte donde caiga, y el resultado es una cabecera
           de cuatro renglones que se come media pantalla antes del primer dato.
           Acá el primer renglón es "dónde estoy y a dónde puedo ir" y el
           segundo, entero, es el día — que es el único control de la barra. */}
-      <header className="z-10 border-b border-border bg-surface px-3 py-2 shadow-card md:px-4 md:py-2.5">
+      {/* Pegada arriba mientras se baja: el día es el contexto de todo lo que
+          hay debajo, y perderlo de vista en el renglón 20 es anotar en la
+          jornada equivocada. */}
+      <header className="sticky top-0 z-20 border-b border-border bg-surface px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] shadow-card md:px-4 md:pb-2.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <Link href="/" className="back-link shrink-0">
             ← Torre
@@ -195,9 +206,9 @@ export default function DespachoPage() {
         </div>
       </header>
 
-      <div className="flex-1 pt-3">
+      <div className="pt-3">
         {error && (
-          <div className="mx-auto mb-3 w-full max-w-[1280px] px-3">
+          <div className="mx-auto mb-3 w-full max-w-[1600px] px-3">
             <p className="rounded-[10px] bg-[#fdecec] px-3 py-2 text-[12px] leading-tight text-st-alerta">
               {error}
             </p>
@@ -208,7 +219,7 @@ export default function DespachoPage() {
             fallo, es que el esquema todavía no se corrió. Mismo trato que le da
             el despacho a los acopios. */}
         {(faltanAcopios || faltanOperadores) && (
-          <div className="mx-auto mb-3 w-full max-w-[1280px] px-3">
+          <div className="mx-auto mb-3 w-full max-w-[1600px] px-3">
             <p className="rounded-[10px] bg-[#fdf4e3] px-3 py-2 text-[12px] leading-tight text-st-detenida">
               {faltanAcopios && (
                 <>
