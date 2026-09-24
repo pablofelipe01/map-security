@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import CasillasAcopio from "./CasillasAcopio";
 import { Aviso, Campo, Dialogo } from "./Form";
 import {
@@ -550,6 +550,7 @@ interface Borrador {
   destinoN: string;
   destino: Acopio | null;
   vagon: string;
+  conductor: string;
   operador_id: string;
   observaciones: string;
 }
@@ -563,6 +564,7 @@ const BORRADOR_VACIO: Borrador = {
   destinoN: "",
   destino: null,
   vagon: "",
+  conductor: "",
   operador_id: "",
   observaciones: "",
 };
@@ -611,7 +613,11 @@ function FilaNueva({
   // Un número de vagón sin destino es un dato a medias: la base lo rechaza y
   // decirlo acá evita el viaje a la red para enterarse.
   const vagonHuerfano = b.vagon.trim() !== "" && !b.destino;
-  const listo = !!b.origen && !vagonHuerfano && !guardando && !ocupado;
+  // Un nombre escrito que no es nadie del registro no puede guardarse como
+  // "sin asignar" callado: el que lo escribió cree que quedó anotado.
+  const conductorSuelto = b.conductor.trim() !== "" && !b.operador_id;
+  const listo =
+    !!b.origen && !vagonHuerfano && !conductorSuelto && !guardando && !ocupado;
 
   const registrar = async () => {
     if (!b.origen) return;
@@ -716,16 +722,12 @@ function FilaNueva({
           />
         </Pregunta>
 
-        <Pregunta
-          label="Conductor"
-          opcional
-          ayuda="Se puede dejar para después."
-        >
-          <SelectOperador
-            valor={b.operador_id}
+        <Pregunta label="Conductor" opcional>
+          <CampoConductor
+            texto={b.conductor}
             operadores={operadores}
             disabled={guardando}
-            onChange={(v) => puso({ operador_id: v })}
+            onChange={(t, id) => puso({ conductor: t, operador_id: id ?? "" })}
           />
         </Pregunta>
 
@@ -790,47 +792,126 @@ function Pregunta({
   );
 }
 
+/** Minúsculas y sin tildes: "Édgar" y "edgar" son la misma persona. */
+function plano(t: string): string {
+  return t
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 /**
- * El desplegable de conductores.
+ * Los operadores que calzan con lo escrito.
  *
- * Contra el maestro de `operadores` que ya lleva el registro de flota, no
- * texto libre: en el papel "Edgar" y "edgar" son dos personas distintas para
- * cualquier conteo. Sólo los activos — mandar a alguien que ya no trabaja acá
- * no es un caso que valga la pena poder registrar por descuido.
+ * Primero el nombre exacto —es lo que llega cuando se elige de la lista—. Si
+ * no, cada palabra escrita tiene que ser el comienzo de alguna palabra del
+ * nombre: "edg" encuentra a "Edgar Pérez" y "per ed" también. Con eso se
+ * escribe lo mínimo sin que el campo adivine entre dos personas.
  */
-function SelectOperador({
-  valor,
+function buscarOperadores(lista: OperadorRow[], texto: string): OperadorRow[] {
+  const q = plano(texto);
+  if (!q) return [];
+  const exacto = lista.filter((o) => plano(o.nombre) === q);
+  if (exacto.length) return exacto;
+  const partes = q.split(" ");
+  return lista.filter((o) => {
+    const palabras = plano(o.nombre).split(" ");
+    return partes.every((p) => palabras.some((w) => w.startsWith(p)));
+  });
+}
+
+/**
+ * El conductor se escribe, con sugerencias del registro de flota.
+ *
+ * SE ESCRIBE Y NO SE ELIGE DE UN DESPLEGABLE porque con veinte nombres el
+ * desplegable es bajar y buscar con la vista, y en celular abre una lista que
+ * tapa media pantalla. Escribir "edg" es más rápido.
+ *
+ * PERO SIGUE SIENDO CONTRA EL MAESTRO de `operadores`, no texto libre: en el
+ * papel "Edgar" y "edgar" son dos personas distintas para cualquier conteo. Lo
+ * escrito se resuelve a un operador mientras se escribe, y debajo se ve a quién
+ * quedó apuntando — o que no calza con nadie, y entonces no se deja guardar.
+ *
+ * Sólo los activos, salvo el que ya tenía el renglón: mandar a alguien que ya
+ * no trabaja acá no vale la pena poder registrarlo por descuido, pero corregir
+ * un renglón viejo no puede obligar a cambiarle el conductor.
+ */
+function CampoConductor({
+  texto,
   operadores,
+  actualId,
   disabled,
   onChange,
 }: {
-  valor: string;
+  texto: string;
   operadores: OperadorRow[];
+  /** El operador que ya tenía el renglón, aunque hoy esté inactivo. */
+  actualId?: string | null;
   disabled?: boolean;
-  onChange: (v: string) => void;
+  onChange: (texto: string, operadorId: string | null) => void;
 }) {
-  const activos = useMemo(
+  const idLista = useId();
+  const lista = useMemo(
     () =>
       operadores
-        .filter((o) => o.activo)
+        .filter((o) => o.activo || o.id === actualId)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-    [operadores],
+    [operadores, actualId],
   );
 
+  const candidatos = useMemo(
+    () => buscarOperadores(lista, texto),
+    [lista, texto],
+  );
+  const unico = candidatos.length === 1 ? candidatos[0] : null;
+  const vacio = !texto.trim();
+
+  const escribir = (t: string) => {
+    const c = buscarOperadores(lista, t);
+    onChange(t, c.length === 1 ? c[0].id : null);
+  };
+
   return (
-    <select
-      className="field"
-      value={valor}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">Sin asignar</option>
-      {activos.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.nombre}
-        </option>
-      ))}
-    </select>
+    <>
+      <input
+        className="field"
+        list={idLista}
+        value={texto}
+        placeholder="Escribe el nombre"
+        autoComplete="off"
+        autoCapitalize="words"
+        disabled={disabled}
+        onChange={(e) => escribir(e.target.value)}
+      />
+      <datalist id={idLista}>
+        {lista.map((o) => (
+          <option key={o.id} value={o.nombre} />
+        ))}
+      </datalist>
+
+      <span className="mt-1 block min-h-[14px] text-[11.5px] leading-tight">
+        {vacio ? (
+          <span className="text-ink-3">Se puede dejar para después.</span>
+        ) : unico ? (
+          <span className="text-brand-green">✓ {unico.nombre}</span>
+        ) : candidatos.length === 0 ? (
+          <span className="text-st-alerta">
+            No está en el registro de flota. Revisa el nombre o bórralo.
+          </span>
+        ) : (
+          <span className="text-st-detenida">
+            Hay {candidatos.length} que calzan (
+            {candidatos
+              .slice(0, 4)
+              .map((c) => c.nombre)
+              .join(", ")}
+            {candidatos.length > 4 ? "…" : ""}). Escribe un poco más.
+          </span>
+        )}
+      </span>
+    </>
   );
 }
 
@@ -881,6 +962,7 @@ function DialogoViaje({
   );
   const [vagon, setVagon] = useState(viaje.vagon ?? "");
   const [operador, setOperador] = useState(viaje.operador_id ?? "");
+  const [conductor, setConductor] = useState(viaje.operador_nombre ?? "");
   const [obs, setObs] = useState(viaje.observaciones ?? "");
   const [reporte, setReporte] = useState(hhmm(viaje.reportado_en));
   const [salida, setSalida] = useState(hhmm(viaje.salida_en));
@@ -889,6 +971,7 @@ function DialogoViaje({
   const [error, setError] = useState<string | null>(null);
 
   const vagonHuerfano = vagon.trim() !== "" && !destino;
+  const conductorSuelto = conductor.trim() !== "" && !operador;
   const horaMala = reporte.trim() !== "" && !bogotaISO(jornada, reporte);
   const salidaMala = salida.trim() !== "" && !bogotaISO(jornada, salida);
 
@@ -1019,11 +1102,15 @@ function DialogoViaje({
       )}
 
       <Campo label="Conductor">
-        <SelectOperador
-          valor={operador}
+        <CampoConductor
+          texto={conductor}
           operadores={operadores}
+          actualId={viaje.operador_id}
           disabled={guardando}
-          onChange={setOperador}
+          onChange={(t, id) => {
+            setConductor(t);
+            setOperador(id ?? "");
+          }}
         />
       </Campo>
 
@@ -1057,7 +1144,12 @@ function DialogoViaje({
           type="button"
           className="btn"
           disabled={
-            guardando || !origen || vagonHuerfano || horaMala || salidaMala
+            guardando ||
+            !origen ||
+            vagonHuerfano ||
+            conductorSuelto ||
+            horaMala ||
+            salidaMala
           }
           onClick={guardar}
         >

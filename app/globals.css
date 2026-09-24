@@ -87,6 +87,13 @@ body {
   .btn:hover {
     filter: brightness(1.15);
   }
+  /* Sin esto el boton deshabilitado se ve igual que el activo: en la planilla
+     se toca "Registrar", no pasa nada y parece que la app se colgo, cuando lo
+     que falta es un dato del formulario. */
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-40;
+    filter: none;
+  }
   .btn-ghost {
     @apply btn bg-transparent border-[1.5px] border-border text-ink-2;
   }
