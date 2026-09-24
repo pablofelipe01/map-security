@@ -165,7 +165,29 @@ function traducir(error: { code?: string; message?: string; details?: string }):
 
 /* ============================== lectura ============================== */
 
+/**
+ * Pide al servidor que copie los operarios de Airtable a Supabase.
+ *
+ * Los operadores verídicos viven en Airtable (ver `lib/operariosAirtable.ts`)
+ * y esta tabla es su copia, así que se refresca antes de leerla. Nunca frena
+ * la carga: si Airtable no contesta en unos segundos o la llave no está, se
+ * sigue con la copia que haya — una lista de ayer sirve más que una pantalla
+ * en blanco. El servidor además la salta si ya corrió hace poco.
+ */
+async function refrescarOperadores(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch("/api/operadores/sincronizar", {
+      method: "POST",
+      signal: AbortSignal.timeout(6000),
+    });
+  } catch {
+    // Sin red o sin Airtable: se lee la copia tal como está.
+  }
+}
+
 export async function fetchFlota(): Promise<Flota> {
+  await refrescarOperadores();
   const [maq, ope, asi, tur] = await Promise.all([
     supabase.from("maquinas").select("id,codigo,nombre,tipo,color,activa"),
     supabase.from("operadores").select("id,nombre,documento,activo"),
@@ -365,20 +387,30 @@ export interface OperadorInput {
   telefono?: string;
 }
 
+/**
+ * Alta de un conductor. Pasa por el servidor, que lo escribe primero en
+ * Airtable —la lista verídica— y después en la copia de Supabase (ver
+ * `app/api/operadores`). Lo usan la planilla, la torre y el diálogo de
+ * asignación, así que ninguno de los tres puede crear un conductor que sólo
+ * exista en la copia.
+ */
 export async function crearOperador(
   input: OperadorInput
 ): Promise<OperadorRow> {
-  const { data, error } = await supabase
-    .from("operadores")
-    .insert({
-      nombre: input.nombre.trim(),
-      documento: vacioANull(input.documento),
-      telefono: vacioANull(input.telefono),
-    })
-    .select("id,nombre,documento,activo")
-    .single();
-  if (error) throw traducir(error);
-  return data as OperadorRow;
+  const res = await fetch("/api/operadores", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as
+    | OperadorRow
+    | { error?: string };
+  if (!res.ok) {
+    throw new Error(
+      ("error" in body && body.error) || `No se pudo registrar (${res.status})`
+    );
+  }
+  return body as OperadorRow;
 }
 
 /**

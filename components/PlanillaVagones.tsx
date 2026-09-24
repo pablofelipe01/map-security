@@ -60,6 +60,8 @@ interface Props {
   onRegistrar: (v: ViajeNuevo) => Promise<void>;
   onCorregir: (id: string, cambios: ViajeCambios) => Promise<void>;
   onSalida: (id: string) => Promise<void>;
+  /** Da de alta un conductor que no estaba en el registro de flota. */
+  onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
 }
 
 export default function PlanillaVagones({
@@ -71,6 +73,7 @@ export default function PlanillaVagones({
   onRegistrar,
   onCorregir,
   onSalida,
+  onCrearOperador,
 }: Props) {
   const [editando, setEditando] = useState<Viaje | null>(null);
   const resumen = useMemo(() => resumirPlanilla(viajes), [viajes]);
@@ -130,6 +133,7 @@ export default function PlanillaVagones({
             operadores={operadores}
             ocupado={ocupado}
             onRegistrar={onRegistrar}
+            onCrearOperador={onCrearOperador}
           />
         </div>
 
@@ -198,6 +202,7 @@ export default function PlanillaVagones({
           jornada={jornada}
           acopios={acopios}
           operadores={operadores}
+          onCrearOperador={onCrearOperador}
           onClose={() => setEditando(null)}
           onGuardar={async (cambios) => {
             await onCorregir(editando.id, cambios);
@@ -538,6 +543,27 @@ function Fila({
 
 /* =========================== renglón nuevo =========================== */
 
+/**
+ * Lo que la persona escribió en el campo del conductor.
+ *
+ * Sólo lo escrito: a quién apunta se deriva cada vez contra el registro (ver
+ * `evaluarConductor`). Guardar además el id sería tener dos verdades que se
+ * separan en cuanto alguien corrige una letra, o en cuanto se crea el operador
+ * y aparece en la lista.
+ */
+interface Conductor {
+  texto: string;
+  documento: string;
+  /** "No es él": no buscar parecidos, registrar lo escrito como alguien nuevo. */
+  forzarNuevo: boolean;
+}
+
+const CONDUCTOR_VACIO: Conductor = {
+  texto: "",
+  documento: "",
+  forzarNuevo: false,
+};
+
 /** El estado del formulario. Las casillas se guardan como se escriben y el
  *  acopio resuelto aparte: son dos cosas distintas y confundirlas obliga a
  *  reconstruir el texto desde el id cada vez que alguien corrige un dígito. */
@@ -550,8 +576,7 @@ interface Borrador {
   destinoN: string;
   destino: Acopio | null;
   vagon: string;
-  conductor: string;
-  operador_id: string;
+  conductor: Conductor;
   observaciones: string;
 }
 
@@ -564,8 +589,7 @@ const BORRADOR_VACIO: Borrador = {
   destinoN: "",
   destino: null,
   vagon: "",
-  conductor: "",
-  operador_id: "",
+  conductor: CONDUCTOR_VACIO,
   observaciones: "",
 };
 
@@ -596,12 +620,14 @@ function FilaNueva({
   operadores,
   ocupado,
   onRegistrar,
+  onCrearOperador,
 }: {
   jornada: string;
   acopios: Acopio[];
   operadores: OperadorRow[];
   ocupado?: boolean;
   onRegistrar: (v: ViajeNuevo) => Promise<void>;
+  onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
 }) {
   const [b, setB] = useState<Borrador>(BORRADOR_VACIO);
   const [guardando, setGuardando] = useState(false);
@@ -613,24 +639,33 @@ function FilaNueva({
   // Un número de vagón sin destino es un dato a medias: la base lo rechaza y
   // decirlo acá evita el viaje a la red para enterarse.
   const vagonHuerfano = b.vagon.trim() !== "" && !b.destino;
-  // Un nombre escrito que no es nadie del registro no puede guardarse como
+  // Un nombre escrito que no se sabe a quién apunta no puede guardarse como
   // "sin asignar" callado: el que lo escribió cree que quedó anotado.
-  const conductorSuelto = b.conductor.trim() !== "" && !b.operador_id;
+  const conductor = evaluarConductor(b.conductor, operadores);
   const listo =
-    !!b.origen && !vagonHuerfano && !conductorSuelto && !guardando && !ocupado;
+    !!b.origen &&
+    !vagonHuerfano &&
+    conductorListo(conductor) &&
+    !guardando &&
+    !ocupado;
 
   const registrar = async () => {
     if (!b.origen) return;
     setGuardando(true);
     setError(null);
     try {
+      const operador_id = await idConductor(
+        conductor,
+        onCrearOperador,
+        b.conductor.documento,
+      );
       await onRegistrar({
         jornada,
         tipo_fruto: b.tipo_fruto,
         origen_acopio_id: b.origen.id,
         destino_acopio_id: b.destino?.id ?? null,
         vagon: b.vagon,
-        operador_id: b.operador_id || null,
+        operador_id,
         observaciones: b.observaciones,
       });
       // El tipo de fruto se conserva: los reportes llegan en rachas del mismo
@@ -722,12 +757,14 @@ function FilaNueva({
           />
         </Pregunta>
 
-        <Pregunta label="Conductor" opcional>
+        {/* `grupo`: puede traer el campo de cédula y botones debajo, y un
+            `<label>` alrededor mandaría cualquier toque al nombre. */}
+        <Pregunta label="Conductor" opcional grupo>
           <CampoConductor
-            texto={b.conductor}
+            valor={b.conductor}
             operadores={operadores}
             disabled={guardando}
-            onChange={(t, id) => puso({ conductor: t, operador_id: id ?? "" })}
+            onChange={(c) => puso({ conductor: c })}
           />
         </Pregunta>
 
@@ -803,87 +840,201 @@ function plano(t: string): string {
 }
 
 /**
- * Los operadores que calzan con lo escrito.
+ * El nombre de un operador nuevo, como se va a guardar.
  *
- * Primero el nombre exacto —es lo que llega cuando se elige de la lista—. Si
- * no, cada palabra escrita tiene que ser el comienzo de alguna palabra del
- * nombre: "edg" encuentra a "Edgar Pérez" y "per ed" también. Con eso se
- * escribe lo mínimo sin que el campo adivine entre dos personas.
+ * Sin espacios de sobra, y con mayúscula inicial sólo si vino todo en
+ * minúsculas o todo en mayúsculas: "edgar perez" y "EDGAR PEREZ" son descuido
+ * de teclado, pero "María del Pilar" ya viene como la persona se escribe y
+ * pasarlo por un molde le pondría "Del".
  */
-function buscarOperadores(lista: OperadorRow[], texto: string): OperadorRow[] {
-  const q = plano(texto);
-  if (!q) return [];
-  const exacto = lista.filter((o) => plano(o.nombre) === q);
-  if (exacto.length) return exacto;
-  const partes = q.split(" ");
-  return lista.filter((o) => {
-    const palabras = plano(o.nombre).split(" ");
-    return partes.every((p) => palabras.some((w) => w.startsWith(p)));
-  });
+function nombreLimpio(t: string): string {
+  const s = t.trim().replace(/\s+/g, " ");
+  if (s !== s.toLowerCase() && s !== s.toUpperCase()) return s;
+  return s
+    .toLowerCase()
+    .replace(/(^|\s)(\p{L})/gu, (_, sep: string, l: string) => sep + l.toUpperCase());
+}
+
+/** Sólo dígitos: la cédula se dicta por radio y se escribe con puntos o sin. */
+function soloDigitos(t: string): string {
+  return t.replace(/\D/g, "");
+}
+
+/** Una cédula colombiana tiene de 6 a 10 dígitos; se deja margen de uno. */
+const CEDULA_VALIDA = /^\d{5,11}$/;
+
+function conductorDe(viaje: Viaje): Conductor {
+  return { ...CONDUCTOR_VACIO, texto: viaje.operador_nombre ?? "" };
+}
+
+type EstadoConductor =
+  | { tipo: "vacio" }
+  /** `exacto: false` = se encontró por parecido ("edg" → Edgar Pérez). */
+  | { tipo: "existente"; op: OperadorRow; exacto: boolean }
+  | { tipo: "ambiguo"; candidatos: OperadorRow[] }
+  /** El nombre es de alguien que está en el registro pero dado de baja. */
+  | { tipo: "de_baja"; op: OperadorRow }
+  | {
+      tipo: "nuevo";
+      nombre: string;
+      cedulaValida: boolean;
+      /** Alguien del registro que ya tiene esa cédula. */
+      cedulaDe: OperadorRow | null;
+    };
+
+/** Los activos, más el que ya tenía el renglón aunque hoy esté de baja. */
+function operadoresElegibles(
+  operadores: OperadorRow[],
+  actualId?: string | null,
+): OperadorRow[] {
+  return operadores
+    .filter((o) => o.activo || o.id === actualId)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
 /**
- * El conductor se escribe, con sugerencias del registro de flota.
+ * A quién apunta lo escrito.
+ *
+ * Primero el nombre exacto —es lo que llega cuando se elige de la lista—, y
+ * eso gana incluso con "No es él": dos operadores con el mismo nombre no
+ * caben en la tabla (`operadores_nombre_uniq`). Si no, cada palabra escrita
+ * tiene que ser el comienzo de alguna palabra del nombre: "edg" encuentra a
+ * "Edgar Pérez" y "per ed" también.
+ *
+ * Si nada calza, es alguien nuevo. Antes de darlo por nuevo se mira que el
+ * nombre no sea de alguien dado de baja (el alta chocaría con el mismo índice)
+ * y que la cédula no sea ya de otro: es la forma de que "Edgar" y "Edgar
+ * Pérez" no terminen siendo dos filas de la misma persona.
+ */
+function evaluarConductor(
+  c: Conductor,
+  operadores: OperadorRow[],
+  actualId?: string | null,
+): EstadoConductor {
+  const q = plano(c.texto);
+  if (!q) return { tipo: "vacio" };
+
+  const lista = operadoresElegibles(operadores, actualId);
+  const exacto = lista.find((o) => plano(o.nombre) === q);
+  if (exacto) return { tipo: "existente", op: exacto, exacto: true };
+
+  if (!c.forzarNuevo) {
+    const partes = q.split(" ");
+    const parecidos = lista.filter((o) => {
+      const palabras = plano(o.nombre).split(" ");
+      return partes.every((p) => palabras.some((w) => w.startsWith(p)));
+    });
+    if (parecidos.length === 1)
+      return { tipo: "existente", op: parecidos[0], exacto: false };
+    if (parecidos.length > 1) return { tipo: "ambiguo", candidatos: parecidos };
+  }
+
+  // Anulado de verdad es el que vino de Airtable (tiene cédula) y allá está
+  // ANULADO. Las filas inactivas sin cédula son restos de las pruebas en
+  // Supabase: no son nadie en la lista verídica y no pueden tapar a un
+  // operario real ni impedir registrar a alguien con ese nombre (el alta
+  // reutiliza esa fila, ver `darDeAlta`). Va después de los parecidos para
+  // que un activo que calce gane siempre.
+  const baja = operadores.find(
+    (o) => !o.activo && !!o.documento && plano(o.nombre) === q,
+  );
+  if (baja) return { tipo: "de_baja", op: baja };
+
+  const cedula = soloDigitos(c.documento);
+  return {
+    tipo: "nuevo",
+    nombre: nombreLimpio(c.texto),
+    cedulaValida: CEDULA_VALIDA.test(cedula),
+    cedulaDe: cedula
+      ? (operadores.find((o) => soloDigitos(o.documento ?? "") === cedula) ??
+        null)
+      : null,
+  };
+}
+
+/** Si con esto se puede guardar el renglón. */
+function conductorListo(e: EstadoConductor): boolean {
+  if (e.tipo === "vacio" || e.tipo === "existente") return true;
+  return e.tipo === "nuevo" && e.cedulaValida && !e.cedulaDe;
+}
+
+/**
+ * El id que va en el renglón, dando de alta al operador si es nuevo.
+ *
+ * El alta va antes que el renglón y no en la misma transacción: si después
+ * falla el renglón, el operador ya queda en el registro, y al reintentar su
+ * nombre calza exacto con la lista y no se vuelve a crear.
+ */
+async function idConductor(
+  e: EstadoConductor,
+  crear: (nombre: string, documento: string) => Promise<OperadorRow>,
+  documento: string,
+): Promise<string | null> {
+  if (e.tipo === "existente") return e.op.id;
+  if (e.tipo === "nuevo") return (await crear(e.nombre, soloDigitos(documento))).id;
+  return null;
+}
+
+/**
+ * El conductor se escribe, con sugerencias del registro de flota; si no está,
+ * se registra ahí mismo con su cédula.
  *
  * SE ESCRIBE Y NO SE ELIGE DE UN DESPLEGABLE porque con veinte nombres el
  * desplegable es bajar y buscar con la vista, y en celular abre una lista que
  * tapa media pantalla. Escribir "edg" es más rápido.
  *
- * PERO SIGUE SIENDO CONTRA EL MAESTRO de `operadores`, no texto libre: en el
- * papel "Edgar" y "edgar" son dos personas distintas para cualquier conteo. Lo
- * escrito se resuelve a un operador mientras se escribe, y debajo se ve a quién
- * quedó apuntando — o que no calza con nadie, y entonces no se deja guardar.
+ * SIGUE SIENDO CONTRA EL MAESTRO de `operadores`, no texto libre: en el papel
+ * "Edgar" y "edgar" son dos personas distintas para cualquier conteo. Lo
+ * escrito se resuelve a un operador mientras se escribe y debajo se ve a quién
+ * quedó apuntando.
  *
- * Sólo los activos, salvo el que ya tenía el renglón: mandar a alguien que ya
- * no trabaja acá no vale la pena poder registrarlo por descuido, pero corregir
- * un renglón viejo no puede obligar a cambiarle el conductor.
+ * SI NO ESTÁ, SE PIDE LA CÉDULA Y SE DA DE ALTA. `operadores` es la lista de
+ * todos los conductores, y el que despacha es muchas veces el primero en
+ * enterarse de que entró uno nuevo. Mandarlo a otra pantalla a registrarlo con
+ * el radio sonando es la forma de que el renglón quede "sin asignar". La cédula
+ * es obligatoria porque es lo único que distingue a dos personas con el mismo
+ * nombre y lo que permite reconocer a alguien que se escribió distinto.
  */
 function CampoConductor({
-  texto,
+  valor,
   operadores,
   actualId,
   disabled,
   onChange,
 }: {
-  texto: string;
+  valor: Conductor;
   operadores: OperadorRow[];
   /** El operador que ya tenía el renglón, aunque hoy esté inactivo. */
   actualId?: string | null;
   disabled?: boolean;
-  onChange: (texto: string, operadorId: string | null) => void;
+  onChange: (c: Conductor) => void;
 }) {
   const idLista = useId();
+  const idCedula = useId();
   const lista = useMemo(
-    () =>
-      operadores
-        .filter((o) => o.activo || o.id === actualId)
-        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    () => operadoresElegibles(operadores, actualId),
     [operadores, actualId],
   );
+  const e = evaluarConductor(valor, operadores, actualId);
 
-  const candidatos = useMemo(
-    () => buscarOperadores(lista, texto),
-    [lista, texto],
-  );
-  const unico = candidatos.length === 1 ? candidatos[0] : null;
-  const vacio = !texto.trim();
-
-  const escribir = (t: string) => {
-    const c = buscarOperadores(lista, t);
-    onChange(t, c.length === 1 ? c[0].id : null);
-  };
+  const escribir = (texto: string) =>
+    // Cambiar el nombre vuelve a buscar: el "No es él" era sobre lo de antes.
+    onChange({ ...valor, texto, forzarNuevo: false });
+  const usar = (op: OperadorRow) =>
+    onChange({ ...CONDUCTOR_VACIO, texto: op.nombre });
 
   return (
     <>
       <input
         className="field"
         list={idLista}
-        value={texto}
+        value={valor.texto}
         placeholder="Escribe el nombre"
+        aria-label="Conductor"
         autoComplete="off"
         autoCapitalize="words"
         disabled={disabled}
-        onChange={(e) => escribir(e.target.value)}
+        onChange={(ev) => escribir(ev.target.value)}
       />
       <datalist id={idLista}>
         {lista.map((o) => (
@@ -891,27 +1042,140 @@ function CampoConductor({
         ))}
       </datalist>
 
-      <span className="mt-1 block min-h-[14px] text-[11.5px] leading-tight">
-        {vacio ? (
+      <div className="mt-1 min-h-[14px] text-[11.5px] leading-tight">
+        {e.tipo === "vacio" && (
           <span className="text-ink-3">Se puede dejar para después.</span>
-        ) : unico ? (
-          <span className="text-brand-green">✓ {unico.nombre}</span>
-        ) : candidatos.length === 0 ? (
-          <span className="text-st-alerta">
-            No está en el registro de flota. Revisa el nombre o bórralo.
+        )}
+
+        {e.tipo === "existente" && (
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-brand-green">✓ {e.op.nombre}</span>
+            {!e.exacto && (
+              <BotonTexto
+                disabled={disabled}
+                onClick={() => onChange({ ...valor, forzarNuevo: true })}
+              >
+                No es él · registrar como nuevo
+              </BotonTexto>
+            )}
           </span>
-        ) : (
+        )}
+
+        {e.tipo === "ambiguo" && (
           <span className="text-st-detenida">
-            Hay {candidatos.length} que calzan (
-            {candidatos
+            Hay {e.candidatos.length} que calzan (
+            {e.candidatos
               .slice(0, 4)
               .map((c) => c.nombre)
               .join(", ")}
-            {candidatos.length > 4 ? "…" : ""}). Escribe un poco más.
+            {e.candidatos.length > 4 ? "…" : ""}). Escribe un poco más o{" "}
+            <BotonTexto
+              disabled={disabled}
+              onClick={() => onChange({ ...valor, forzarNuevo: true })}
+            >
+              regístralo como nuevo
+            </BotonTexto>
+            .
           </span>
         )}
-      </span>
+
+        {e.tipo === "de_baja" && (
+          <span className="text-st-alerta">
+            {e.op.nombre} está anulado en la lista de operarios (Airtable,
+            Control de Combustible). Para asignarlo hay que reactivarlo allá.
+          </span>
+        )}
+      </div>
+
+      {e.tipo === "nuevo" && (
+        <div className="mt-2 rounded-[10px] border border-border bg-surface-2 p-3">
+          <p className="mb-2 text-[12px] leading-snug text-ink-2">
+            <strong className="text-ink">{e.nombre}</strong> no está en el
+            registro de conductores. Se agrega al registrar el renglón.
+          </p>
+
+          <label htmlFor={idCedula} className="mb-1 block text-[12.5px] font-bold text-ink">
+            Cédula
+          </label>
+          <input
+            id={idCedula}
+            className="field mono max-w-[220px]"
+            value={valor.documento}
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="Sin puntos"
+            disabled={disabled}
+            onChange={(ev) =>
+              onChange({ ...valor, documento: soloDigitos(ev.target.value) })
+            }
+          />
+
+          <div className="mt-1 min-h-[14px] text-[11.5px] leading-tight">
+            {e.cedulaDe ? (
+              <span className="text-st-alerta">
+                Esa cédula ya es de {e.cedulaDe.nombre}
+                {e.cedulaDe.activo ? (
+                  <>
+                    .{" "}
+                    <BotonTexto
+                      disabled={disabled}
+                      onClick={() => usar(e.cedulaDe!)}
+                    >
+                      Usar a {e.cedulaDe.nombre}
+                    </BotonTexto>
+                  </>
+                ) : (
+                  ", que está anulado en la lista de operarios."
+                )}
+              </span>
+            ) : valor.documento && !e.cedulaValida ? (
+              <span className="text-st-alerta">
+                Revisa la cédula: debe tener de 6 a 10 números.
+              </span>
+            ) : e.cedulaValida ? (
+              <span className="text-brand-green">
+                ✓ Queda registrado con esta cédula.
+              </span>
+            ) : (
+              <span className="text-ink-3">
+                Obligatoria para registrar un conductor nuevo.
+              </span>
+            )}
+          </div>
+
+          {valor.forzarNuevo && (
+            <BotonTexto
+              disabled={disabled}
+              onClick={() => onChange({ ...valor, forzarNuevo: false })}
+            >
+              ← Volver a buscar en el registro
+            </BotonTexto>
+          )}
+        </div>
+      )}
     </>
+  );
+}
+
+/** Un enlace que actúa: subrayado, del color de acción y con área de toque. */
+function BotonTexto({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="inline py-1 text-[11.5px] font-bold text-accent underline underline-offset-2 disabled:opacity-40"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -930,6 +1194,7 @@ function DialogoViaje({
   jornada,
   acopios,
   operadores,
+  onCrearOperador,
   onClose,
   onGuardar,
 }: {
@@ -937,6 +1202,7 @@ function DialogoViaje({
   jornada: string;
   acopios: Acopio[];
   operadores: OperadorRow[];
+  onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
   onClose: () => void;
   onGuardar: (cambios: ViajeCambios) => Promise<void>;
 }) {
@@ -961,8 +1227,7 @@ function DialogoViaje({
     acopios.find((a) => a.id === viaje.destino_acopio_id) ?? null,
   );
   const [vagon, setVagon] = useState(viaje.vagon ?? "");
-  const [operador, setOperador] = useState(viaje.operador_id ?? "");
-  const [conductor, setConductor] = useState(viaje.operador_nombre ?? "");
+  const [conductor, setConductor] = useState<Conductor>(conductorDe(viaje));
   const [obs, setObs] = useState(viaje.observaciones ?? "");
   const [reporte, setReporte] = useState(hhmm(viaje.reportado_en));
   const [salida, setSalida] = useState(hhmm(viaje.salida_en));
@@ -971,21 +1236,41 @@ function DialogoViaje({
   const [error, setError] = useState<string | null>(null);
 
   const vagonHuerfano = vagon.trim() !== "" && !destino;
-  const conductorSuelto = conductor.trim() !== "" && !operador;
+  const estadoConductor = evaluarConductor(
+    conductor,
+    operadores,
+    viaje.operador_id,
+  );
+  const conductorSuelto = !conductorListo(estadoConductor);
   const horaMala = reporte.trim() !== "" && !bogotaISO(jornada, reporte);
   const salidaMala = salida.trim() !== "" && !bogotaISO(jornada, salida);
+  // La base rechaza una salida anterior al reporte
+  // (`viajes_salida_despues_del_reporte`), pero con un mensaje de Postgres en
+  // inglés. Se compara acá con las mismas dos horas que se van a mandar, para
+  // decirlo en palabras y antes de ir a la red. Pasa sobre todo al pasar a la
+  // app un renglón viejo: el reporte nació con la hora de hoy y hay que
+  // corregir las dos, no sólo la salida.
+  const isoReporte = bogotaISO(jornada, reporte);
+  const isoSalida = salida.trim() ? bogotaISO(jornada, salida) : null;
+  const salidaAntes =
+    !!isoReporte && !!isoSalida && Date.parse(isoSalida) < Date.parse(isoReporte);
 
   const guardar = async () => {
     if (!origen) return;
     setGuardando(true);
     setError(null);
     try {
+      const operador_id = await idConductor(
+        estadoConductor,
+        onCrearOperador,
+        conductor.documento,
+      );
       const cambios: ViajeCambios = {
         tipo_fruto: tipo,
         origen_acopio_id: origen.id,
         destino_acopio_id: destino?.id ?? null,
         vagon,
-        operador_id: operador || null,
+        operador_id,
         observaciones: obs,
         // Vacío = borrar la salida (el renglón vuelve a estar pendiente), que es
         // cómo se deshace un clic equivocado en "Marcar salida".
@@ -1101,18 +1386,18 @@ function DialogoViaje({
         </Aviso>
       )}
 
-      <Campo label="Conductor">
+      {/* No es `Campo`: ése es un `<label>`, y con la cédula y los botones
+          debajo cualquier toque se iría al nombre. */}
+      <div className="mb-3">
+        <span className="t-label mb-1 block">Conductor</span>
         <CampoConductor
-          texto={conductor}
+          valor={conductor}
           operadores={operadores}
           actualId={viaje.operador_id}
           disabled={guardando}
-          onChange={(t, id) => {
-            setConductor(t);
-            setOperador(id ?? "");
-          }}
+          onChange={setConductor}
         />
-      </Campo>
+      </div>
 
       <Campo label="Observaciones">
         <textarea
@@ -1126,6 +1411,12 @@ function DialogoViaje({
 
       {(horaMala || salidaMala) && (
         <Aviso>Revisa las horas: no se entienden.</Aviso>
+      )}
+      {salidaAntes && (
+        <Aviso>
+          La hora de salida no puede ser antes de la hora del reporte. Si es un
+          renglón pasado a la app después, corrige también la hora del reporte.
+        </Aviso>
       )}
       {error && <Aviso>{error}</Aviso>}
 
@@ -1149,7 +1440,8 @@ function DialogoViaje({
             vagonHuerfano ||
             conductorSuelto ||
             horaMala ||
-            salidaMala
+            salidaMala ||
+            salidaAntes
           }
           onClick={guardar}
         >

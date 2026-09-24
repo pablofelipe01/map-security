@@ -90,6 +90,7 @@ la planeación queda un nivel adentro.
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ ya configurada |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ ya configurada (anon, solo lectura) |
 | `AIRTABLE_GUAICARAMO_VISITAS_API_KEY` | opcional — registros de ingreso de la portería (ver abajo) |
+| `AIRTABLE_CONTROL_COMBUSTIBLE_API_KEY` | lista verídica de operarios (base "Guaicaramo-Control-Combustible", tabla `operarios`). Se copia a `operadores` de Supabase al cargar la flota, y las altas de conductores se escriben ahí primero (ver `lib/operariosAirtable.ts`). Sin ella se trabaja con la copia que haya |
 
 La de Airtable **no** lleva `NEXT_PUBLIC_`: es un token con permiso de escritura
 sobre datos de personas y se queda en el servidor. Sin ella la app funciona

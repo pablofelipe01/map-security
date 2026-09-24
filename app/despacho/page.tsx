@@ -4,7 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PlanillaVagones from "@/components/PlanillaVagones";
 import { fetchAcopios, AcopiosNoInstalados, type Acopio } from "@/lib/acopios";
-import { fetchFlota, FLOTA_VACIA, type Flota } from "@/lib/registro";
+import {
+  crearOperador,
+  fetchFlota,
+  FLOTA_VACIA,
+  type Flota,
+} from "@/lib/registro";
 import {
   corregirViaje,
   fetchPlanilla,
@@ -145,6 +150,23 @@ export default function DespachoPage() {
     [tras],
   );
 
+  /**
+   * Alta de un conductor desde la planilla.
+   *
+   * Se agrega a la lista en memoria en vez de releer toda la flota: el renglón
+   * que se está guardando necesita verlo ya —si el renglón falla, al reintentar
+   * su nombre tiene que calzar exacto y no volver a crearse— y la flota entera
+   * son tres consultas para enterarse de una fila que ya se tiene en la mano.
+   */
+  const onCrearOperador = useCallback(
+    async (nombre: string, documento: string) => {
+      const o = await crearOperador({ nombre, documento });
+      setFlota((f) => ({ ...f, operadores: [...f.operadores, o] }));
+      return o;
+    },
+    []
+  );
+
   /* --------------------------- pantalla --------------------------- */
 
   const faltanAcopios = !cargando && !error && acopios.length === 0;
@@ -230,8 +252,9 @@ export default function DespachoPage() {
               )}
               {faltanOperadores && (
                 <>
-                  No hay operadores en el registro de flota: los renglones van a
-                  quedar sin conductor hasta que se carguen.
+                  No hay operadores en el registro de flota todavía: cada
+                  conductor se va agregando la primera vez que se escribe, con
+                  su cédula.
                 </>
               )}
             </p>
@@ -252,6 +275,7 @@ export default function DespachoPage() {
             onRegistrar={onRegistrar}
             onCorregir={onCorregir}
             onSalida={onSalida}
+            onCrearOperador={onCrearOperador}
           />
         )}
       </div>
