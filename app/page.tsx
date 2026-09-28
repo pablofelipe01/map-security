@@ -11,6 +11,13 @@ import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import AsignacionModal from "@/components/AsignacionModal";
 import FlotaAdmin from "@/components/FlotaAdmin";
 import UniversosModal from "@/components/UniversosModal";
+import CombustibleView from "@/components/CombustibleView";
+import {
+  emparejar,
+  fetchMaquinasCombustible,
+  normCodigo,
+  type MaquinaCombustible,
+} from "@/lib/combustible";
 import type {
   Trail,
   ReplayPos,
@@ -136,6 +143,17 @@ export default function Page() {
   const [adminAbierto, setAdminAbierto] = useState(false);
   const [universosAbierto, setUniversosAbierto] = useState(false);
 
+  // Parque de la base de combustible: alimenta el índice de universos y los
+  // tanqueos de cada ficha. Va aparte de `load`, como el registro de flota: que
+  // Airtable no responda no puede dejar el mapa sin máquinas.
+  const [catalogo, setCatalogo] = useState<MaquinaCombustible[] | null>(null);
+  const [catalogoError, setCatalogoError] = useState<string | null>(null);
+  useEffect(() => {
+    fetchMaquinasCombustible()
+      .then(setCatalogo)
+      .catch((e) => setCatalogoError(String((e as Error)?.message ?? e)));
+  }, []);
+
   const [minute, setMinute] = useState(6 * 60);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(15);
@@ -145,13 +163,21 @@ export default function Page() {
   // desde el histórico, para que la ficha hable de la fecha que se estaba
   // mirando y no de hoy. La fecha va en la URL para que el enlace se pueda
   // compartir y siga significando lo mismo.
+  //
+  // #/c/<codigo>[/<fecha>] es el universo de una máquina SIN nodo, que sólo
+  // existe en la base de combustible: no tiene node_id que poner en la ruta.
   const [hashNode, setHashNode] = useState<string | null>(null);
+  const [hashCodigo, setHashCodigo] = useState<string | null>(null);
   const [hashFecha, setHashFecha] = useState<string | null>(null);
   useEffect(() => {
     const read = () => {
-      const m = location.hash.match(/^#\/m\/([^/]+)(?:\/(\d{4}-\d{2}-\d{2}))?$/);
-      setHashNode(m ? decodeURIComponent(m[1]) : null);
-      setHashFecha(m?.[2] ?? null);
+      const m = location.hash.match(
+        /^#\/([mc])\/([^/]+)(?:\/(\d{4}-\d{2}-\d{2}))?$/
+      );
+      const valor = m ? decodeURIComponent(m[2]) : null;
+      setHashNode(m?.[1] === "m" ? valor : null);
+      setHashCodigo(m?.[1] === "c" ? valor : null);
+      setHashFecha(m?.[3] ?? null);
     };
     read();
     window.addEventListener("hashchange", read);
@@ -493,6 +519,14 @@ export default function Page() {
     [mode, date]
   );
 
+  const openCombustible = useCallback(
+    (codigo: string) => {
+      const base = `#/c/${encodeURIComponent(codigo)}`;
+      location.hash = mode === "history" ? `${base}/${date}` : base;
+    },
+    [mode, date]
+  );
+
   const selectMachine = useCallback((nodeId: string) => {
     setSelectedId(nodeId);
     setPanelOpen(true);
@@ -521,6 +555,38 @@ export default function Page() {
       <main className="h-dvh w-full overflow-hidden">
         <MachineView
           node={nodoAbierto}
+          fecha={hashFecha ?? undefined}
+          combustible={(() => {
+            const maq = maquinaDe(
+              nodoAbierto.node_id,
+              nodoAbierto.long_name,
+              nodoAbierto.short_name
+            );
+            // undefined = el parque todavía no llega (o no respondió): la
+            // ficha no debe decir que el código no calza sin haberlo mirado.
+            if (maq.tipo === "porteria") return null;
+            if (!catalogo) return undefined;
+            return emparejar(maq.codigo, catalogo);
+          })()}
+          onBack={() => {
+            location.hash = "";
+          }}
+        />
+      </main>
+    );
+  }
+
+  if (hashCodigo) {
+    return (
+      <main className="h-dvh w-full overflow-hidden">
+        <CombustibleView
+          codigo={hashCodigo}
+          maquina={
+            catalogo?.find(
+              (m) => normCodigo(m.codigo) === normCodigo(hashCodigo)
+            ) ?? null
+          }
+          cargando={!catalogo && !catalogoError}
           fecha={hashFecha ?? undefined}
           onBack={() => {
             location.hash = "";
@@ -653,9 +719,15 @@ export default function Page() {
             date={date}
             nodes={nodes}
             fleet={fleet}
+            catalogo={catalogo}
+            catalogoError={catalogoError}
             onOpen={(id) => {
               setUniversosAbierto(false);
               openMachine(id);
+            }}
+            onOpenCombustible={(codigo) => {
+              setUniversosAbierto(false);
+              openCombustible(codigo);
             }}
             onClose={() => setUniversosAbierto(false)}
           />

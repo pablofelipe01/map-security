@@ -10,6 +10,8 @@ import { puestoDe } from "@/lib/puestos";
 import { dayRange, shiftDay, todayLocal } from "@/lib/ranges";
 import BarChart from "./BarChart";
 import PorteriaPanel from "./PorteriaPanel";
+import TanqueosPanel from "./TanqueosPanel";
+import type { MaquinaCombustible } from "@/lib/combustible";
 import { MiniIcon, Tile } from "./SidePanel";
 import type { FleetItem } from "@/lib/types";
 
@@ -21,6 +23,12 @@ interface Props {
    * esa fecha y no del presente.
    */
   fecha?: string;
+  /**
+   * Su máquina en la base de combustible, si el código calza (ver `emparejar`).
+   * null = no calza (o es un puesto fijo); undefined = el parque aún no se ha
+   * leído. Sólo con null se avisa que faltan tanqueos.
+   */
+  combustible?: MaquinaCombustible | null;
   onBack: () => void;
 }
 
@@ -37,12 +45,13 @@ const DIAS = 14;
 /**
  * "Universo de la máquina": la ficha completa de un tractor.
  *
- * Respecto al patrón faltan tres bloques —horómetro, combustible y
- * mantenimiento— porque ninguno tiene fuente: la base sólo guarda posiciones.
+ * Respecto al patrón falta mantenimiento, que no tiene fuente. El combustible
+ * y el horómetro no los guarda la torre: llegan con los tanqueos de la app de
+ * control de combustible, cuando el código de la máquina calza con esa base.
  * Se omiten en vez de mostrarlos en cero, que es lo que haría creer que la
  * máquina no ha consumido ni se ha reparado nunca.
  */
-export default function MachineView({ node, fecha, onBack }: Props) {
+export default function MachineView({ node, fecha, combustible, onBack }: Props) {
   // Ventana anclada al día pedido. "Hoy" es el caso normal; cualquier otro día
   // convierte la ficha en una foto del pasado, y el estado en vivo deja de
   // aplicar: decir "activa" sobre una fecha de marzo sería mentir.
@@ -240,6 +249,25 @@ export default function MachineView({ node, fecha, onBack }: Props) {
         />
       </div>
 
+      {combustible && (
+        <TanqueosPanel maquina={combustible} desde={desde} hasta={hasta} />
+      )}
+
+      {/* Una máquina con nodo tiene que mostrar recorrido Y tanqueos. Si no
+          salen tanqueos es porque su código no calza con la base de
+          combustible, y eso se arregla en el registro: se dice aquí, a la
+          vista, y no en una nota al pie que nadie lee. */}
+      {combustible === null && !puesto && (
+        <p className="mb-6 rounded-card border border-st-detenida/40 bg-[#fdf7ea] px-3 py-2.5 text-xs text-st-detenida">
+          Sin tanqueos: el código <b className="font-mono">{maq.codigo}</b> no
+          corresponde a ninguna máquina de la app de combustible. Ponle en el
+          registro de flota su código de allá (por ejemplo{" "}
+          <span className="font-mono">MA92</span> o{" "}
+          <span className="font-mono">LZT936</span>) y sus tanqueos aparecen
+          aquí junto al recorrido.
+        </p>
+      )}
+
       {!dias && !error && <p className="text-[12.5px] text-ink-3">Cargando…</p>}
 
       {dias && (
@@ -330,8 +358,7 @@ export default function MachineView({ node, fecha, onBack }: Props) {
             <p className="mt-3 text-[10px] leading-tight text-ink-3">
               &quot;Jornada&quot; es del primer al último fix GPS del día, no el
               turno del operador: la máquina no reporta encendido ni apagado.
-              Horómetro, combustible y mantenimiento no aparecen porque no
-              existen en la base — requieren tablas propias.
+              {combustible && " El horómetro sale de los tanqueos, no del nodo."}
             </p>
           </div>
         </div>
