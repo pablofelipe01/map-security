@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Convierte los censos de palma por bloque (Excel) en public/palmas-lineas-guaicaramo.geojson.
+"""Convierte los censos de palma por bloque (Excel) en public/palmas/<bloque>.geojson.
 
     pip install openpyxl
     python scripts/xlsx-palmas-a-geojson.py "LINEA - PALMA BLOQUE 7.xlsx" "LINEA-PALMA BLOQUE 6.xlsx" ...
@@ -13,10 +13,13 @@ Se leen LATITUD/LONGITUD y no POINT_X/POINT_Y porque el Excel no dice en que
 origen estan las planas (MAGNA-SIRGAS Bogota, por los valores), y el segundo con
 tres decimales ya es ~3 cm: de sobra para una capa de fondo.
 
-Solo hay censo para algunos bloques (6, 7, 19 y 231 al escribir esto). Los
-bloques que no tengan Excel simplemente no tienen lineas en el mapa; cuando el
-Departamento Agronomico mande otro, se agrega a la lista de argumentos y se
-vuelve a correr con TODOS los Excel (el archivo se reescribe entero).
+Escribe un archivo por bloque (el mapa sólo baja el bloque que se elige en el
+control de capas) y reescribe sólo los bloques que vienen en los Excel dados.
+Después hay que rehacer el índice que lee el mapa:
+
+    node scripts/kmz-palmas-a-geojson.mjs --indice
+
+Los bloques que llegan en KMZ (p. ej. el 9) salen de ese mismo script.
 """
 import os
 import re
@@ -29,7 +32,7 @@ import openpyxl
 from pdf_geo import simplificar
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-SALIDA = os.path.normpath(os.path.join(AQUI, '..', 'public', 'palmas-lineas-guaicaramo.geojson'))
+DIR = os.path.normpath(os.path.join(AQUI, '..', 'public', 'palmas'))
 
 if len(sys.argv) < 2:
     sys.exit('uso: python scripts/xlsx-palmas-a-geojson.py <bloque.xlsx> [<bloque.xlsx> ...]')
@@ -68,8 +71,7 @@ for ruta in sys.argv[1:]:
         n += 1
     print('%-36s %6d palmas' % (os.path.basename(ruta), n))
 
-feats = []
-por_bloque = defaultdict(int)
+feats = defaultdict(list)   # bloque -> features
 for id_linea, palmas in sorted(lineas.items()):
     # Un mismo censo puede repetir una palma (dos Excel del mismo bloque, o una
     # fila duplicada): se queda la primera de cada posición.
@@ -79,21 +81,23 @@ for id_linea, palmas in sorted(lineas.items()):
     pts = list(vistas.values())
     if len(pts) < 2:
         continue
-    por_bloque[id_linea.split('-')[0]] += 1
-    feats.append({
+    bloque, parcela = id_linea.split('-')[:2]
+    feats[bloque].append({
         'type': 'Feature',
-        # Solo lo que el mapa usa: son ~6.000 lineas y cada propiedad de mas se
-        # paga 6.000 veces. Bloque y parcela salen del propio ID_LINEA.
-        'properties': {'linea': id_linea, 'palmas': len(pts)},
+        # Solo lo que el mapa usa: cada propiedad de mas se paga en cada línea.
+        'properties': {'linea': id_linea, 'parcela': bloque + '-' + parcela, 'palmas': len(pts)},
         'geometry': {
             'type': 'LineString',
             'coordinates': [[round(x, 6), round(y, 6)] for x, y in simplificar(pts, TOL_M)],
         },
     })
 
-with open(SALIDA, 'w', encoding='utf-8') as f:
-    json.dump({'type': 'FeatureCollection', 'features': feats}, f,
-              ensure_ascii=False, separators=(',', ':'))
+os.makedirs(DIR, exist_ok=True)
+for bloque, fs in sorted(feats.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0):
+    salida = os.path.join(DIR, bloque + '.geojson')
+    with open(salida, 'w', encoding='utf-8') as f:
+        json.dump({'type': 'FeatureCollection', 'features': fs}, f,
+                  ensure_ascii=False, separators=(',', ':'))
+    print('bloque %-4s %5d líneas -> %s' % (bloque, len(fs), salida))
 print('filas descartadas (sin coordenada o sin línea):', malas)
-print('líneas por bloque:', dict(sorted(por_bloque.items(), key=lambda kv: int(kv[0]))))
-print('%d líneas -> %s' % (len(feats), SALIDA))
+print('Falta el índice: node scripts/kmz-palmas-a-geojson.mjs --indice')

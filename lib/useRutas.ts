@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
 import { grafoVias, rutearRastro, type Tramo } from "./rutas";
+import { surcosPara } from "./surcos";
 
 /** Lo mínimo que el hook necesita de un rastro para poder rutearlo. */
 interface RastroRuteable {
   nodeId: string;
   latlngs: [number, number][];
+  /** Instante de cada fix (ms). Sin él, dentro del lote se toma el zigzag mínimo. */
+  tiempos?: number[];
 }
 
 /**
  * Rutea los rastros por la malla vial (ver lib/rutas.ts) sin bloquear la UI.
+ *
+ * Dentro de los lotes con censo de palma el tramo va por las calles entre
+ * hileras (lib/surcos.ts) en vez de por las vías.
  *
  * Devuelve null mientras el grafo se arma —el mapa dibuja las rectas de siempre
  * durante ese lapso, así que nunca se queda en blanco esperando— y a partir de
@@ -44,11 +50,21 @@ export function useRutasPorVia(
     (async () => {
       const g = await grafoVias();
       if (cancelado || !g) return;
+      // Las calles de palma de los bloques por donde pasó alguien (lib/surcos.ts).
+      // Se baja sólo lo que los rastros tocan, sin importar qué capa se ve: el
+      // dibujo del recorrido no puede depender de un interruptor.
+      const surcos = await surcosPara(rastros.flatMap((r) => r.latlngs));
+      if (cancelado) return;
 
       const out = new Map<string, Tramo[]>();
       for (const r of rastros) {
         if (cancelado) return;
-        if (r.latlngs.length >= 2) out.set(r.nodeId, rutearRastro(g, r.latlngs));
+        if (r.latlngs.length >= 2) {
+          out.set(
+            r.nodeId,
+            rutearRastro(g, r.latlngs, undefined, { surcos, tiempos: r.tiempos })
+          );
+        }
         // Cede el hilo entre máquinas para que el mapa siga respondiendo. Tiene
         // que ser una macrotarea: con una microtarea (`await Promise.resolve()`)
         // el navegador nunca alcanza a pintar entre una máquina y la siguiente.

@@ -104,6 +104,7 @@ export default function CasillasAcopio({
               <Casilla
                 valor={num}
                 placeholder="Ej. 68"
+                alfanumerico
                 amplio
                 disabled={disabled}
                 onChange={(v) => emitir(bloque, v)}
@@ -129,6 +130,7 @@ export default function CasillasAcopio({
             <Casilla
               valor={num}
               placeholder="Acopio"
+              alfanumerico
               disabled={disabled}
               onChange={(v) => emitir(bloque, v)}
             />
@@ -166,20 +168,23 @@ export default function CasillasAcopio({
 /**
  * Una casilla.
  *
- * `inputMode="numeric"` y no `type="number"`: los números de acopio incluyen
- * "8A" y "9A", así que el campo tiene que aceptar letras. Lo que se busca es
- * que el teclado del celular abra en números, no que el navegador valide.
+ * El bloque siempre es un número, así que abre el teclado numérico. El acopio
+ * no: hay "8A", "14B", "9CON10", y con el teclado numérico del celular esas
+ * letras no se pueden escribir. Por eso `alfanumerico` abre el teclado normal
+ * en mayúsculas.
  */
 function Casilla({
   valor,
   placeholder,
   amplio,
+  alfanumerico,
   disabled,
   onChange,
 }: {
   valor: string;
   placeholder: string;
   amplio?: boolean;
+  alfanumerico?: boolean;
   disabled?: boolean;
   onChange: (v: string) => void;
 }) {
@@ -192,7 +197,10 @@ function Casilla({
       }
       value={valor}
       placeholder={placeholder}
-      inputMode="numeric"
+      inputMode={alfanumerico ? "text" : "numeric"}
+      autoCapitalize={alfanumerico ? "characters" : "off"}
+      autoCorrect="off"
+      spellCheck={false}
       autoComplete="off"
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}

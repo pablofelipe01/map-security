@@ -47,6 +47,13 @@ import {
   type CapaFija,
   type CapasVisibles,
 } from "@/lib/capas";
+import {
+  bloqueDe,
+  lineasDeBloque,
+  seleccionada,
+  type Caja,
+  type SeleccionPalmas,
+} from "@/lib/palmas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
 import type { SegmentoRastro, TransicionRastro } from "@/lib/atribucion";
 
@@ -143,6 +150,14 @@ interface Props {
   onMap?: (map: MapLibreMap | null) => void;
   /** Qué capas fijas del predio se ven (el control de capas de la página). */
   capas: CapasVisibles;
+  /** Bloques y parcelas cuyas líneas de palma se cargan (ver lib/palmas.ts). */
+  palmas: SeleccionPalmas;
+  /**
+   * Caja a la que llevar el mapa, p. ej. al elegir un bloque en el control de
+   * capas. Objeto nuevo en cada pedido: elegir otra vez lo mismo vuelve a
+   * encuadrar, como el buscador de coordenadas.
+   */
+  encuadre?: { caja: Caja } | null;
 }
 
 /** Un punto puesto en el mapa a mano, con el texto con que se pidió. */
@@ -228,12 +243,12 @@ const PARCELAS_COLOR: ExpressionSpecification = [
 ];
 
 /**
- * Líneas de palma: una polilínea por hilera, del censo por bloque en Excel
- * (`scripts/xlsx-palmas-a-geojson.py`). Sólo existen para los bloques que
- * tienen censo; el resto del predio no tiene líneas.
+ * Líneas de palma: una polilínea por hilera, del censo de cada bloque
+ * (`scripts/kmz-palmas-a-geojson.mjs`). La fuente arranca vacía y se llena con
+ * los bloques o parcelas que se eligen en el control de capas: la capa entera
+ * no se carga nunca (ver lib/palmas.ts).
  */
 const SRC_PALMAS = "palmas-lineas";
-const PALMAS_URL = "/palmas-lineas-guaicaramo.geojson";
 const PALMAS_COLOR = "#d9f99d";
 
 /**
@@ -410,6 +425,8 @@ export default function MapGL({
   punto: puntoBuscado,
   onMap,
   capas,
+  palmas,
+  encuadre,
 }: Props) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -468,7 +485,7 @@ export default function MapGL({
             attribution: "Imagery © Esri",
           },
           [SRC_PARCELAS]: { type: "geojson", data: PARCELAS_URL },
-          [SRC_PALMAS]: { type: "geojson", data: PALMAS_URL },
+          [SRC_PALMAS]: { type: "geojson", data: FC_VACIA },
           [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
           [SRC_ETIQ]: { type: "geojson", data: ETIQ_URL },
           [SRC_ACOPIOS]: { type: "geojson", data: ACOPIOS_URL },
@@ -500,11 +517,10 @@ export default function MapGL({
               "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 16, 1.2],
             },
           },
-          // Líneas de palma. Desde z12, que es el zoom con que abre el mapa: con
-          // sólo cuatro bloques censados, si la capa esperara a z15 casi nunca
-          // se vería y el interruptor parecería no hacer nada. De lejos las
-          // hileras (~9 m) se funden en una trama tenue que marca qué bloques
-          // tienen censo; desde z15 se separan en líneas.
+          // Líneas de palma. Desde z12, que es el zoom con que abre el mapa: si
+          // la capa esperara a z15, quien elige un bloque desde lejos no vería
+          // nada y creería que no cargó. De lejos las hileras (~8 m) se funden
+          // en una trama tenue que marca el bloque; desde z15 se separan.
           {
             id: SRC_PALMAS,
             type: "line",
@@ -1449,6 +1465,42 @@ ${
 
     whenReady(dibujar);
   }, [puntoBuscado, whenReady]);
+
+  // --- Líneas de palma: sólo los bloques elegidos ---
+  useEffect(() => {
+    let vigente = true;
+    const visibles = capas.palmas ? palmas : [];
+    const bloques = [...new Set(visibles.map(bloqueDe))];
+    void Promise.all(bloques.map(lineasDeBloque)).then((fcs) => {
+      if (!vigente) return;
+      // Del bloque bajado se dibujan sólo las parcelas elegidas.
+      const features = fcs.flatMap((fc) =>
+        (fc?.features ?? []).filter((f) => seleccionada(visibles, f.properties.parcela))
+      );
+      whenReady(() => {
+        const src = mapRef.current?.getSource(SRC_PALMAS) as GeoJSONSource | undefined;
+        src?.setData({ type: "FeatureCollection", features });
+      });
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [palmas, capas.palmas, whenReady]);
+
+  useEffect(() => {
+    if (!encuadre) return;
+    whenReady(() => {
+      const [w, s, e, n] = encuadre.caja;
+      mapRef.current?.fitBounds(
+        [
+          [w, s],
+          [e, n],
+        ],
+        // Hasta z16: de más cerca una parcela no cabe y se pierde el contexto.
+        { padding: 60, maxZoom: 16, duration: 600 }
+      );
+    });
+  }, [encuadre, whenReady]);
 
   // --- Interruptores del control de capas ---
   useEffect(() => {

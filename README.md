@@ -272,32 +272,56 @@ dibujaría.
 
 ### Capa de bloques y parcelas
 
-Los **502 polígonos de parcela** salen del mismo plano de acopios (capa `PARCELA`,
-con su rótulo en `PARCELA - Predeterminado`). El KMZ de topografía no trae
-polígonos, sólo vías.
+Las parcelas se arman cruzando **dos planos PDF geoespaciales** del Departamento
+Agronómico (el KMZ de topografía no trae polígonos, sólo vías):
+
+- **Geometría**: la capa `PARCELA` del plano *Acopios Guaicaramo 2026* (enero),
+  que es el único que trae los linderos como vectores.
+- **Rótulos**: el plano *GUAICARAMO SATELITAL* (septiembre 2026), el más
+  reciente. Su capa `PARCELA` sólo trae los textos; los linderos que se ven en él
+  están pintados dentro de la imagen.
 
 ```bash
-pip install pypdf
-python scripts/pdf-parcelas-a-geojson.py "<ruta>/Acopios Guaicaramo 2026.pdf"
+pip install pypdf shapely
+python scripts/pdf-parcelas-a-geojson.py "<ruta>/Acopios Guaicaramo 2026.pdf" "<ruta>/GUAICARAMO SATELITAL.pdf"
 ```
+
+Por qué así, y no sólo con el plano de acopios:
+
+- **Sus rótulos están corridos en algunos lotes.** En el B.342, el "P.9" del plano
+  de enero quedó dentro de P.8 y la franja que de verdad es P.9 quedó sin
+  nombre; con los rótulos de septiembre, 15 códigos cambian de polígono. Los dos
+  planos comparten georreferencia (sus vías coinciden a ~30 cm), así que se
+  cruzan sin corrección.
+- **No todos los linderos son anillos cerrados.** Algunas parcelas se parten con
+  un trazo suelto dibujado sobre otra, y tomar sólo los anillos juntaba dos
+  parcelas en una. El script corta todos los trazos entre sí y toma las caras
+  que forman (`shapely.polygonize`), como haría un SIG.
 
 Deja dos archivos: `parcelas-guaicaramo.geojson` (polígonos con `cod_bp`,
 `bloque`, `tono`, `ha`) y `parcelas-guaicaramo-etiquetas.geojson` (un punto por
-parcela y uno por bloque). Antes los rótulos se ponían en el promedio de las vías
-de cada parcela; ahora van dentro del polígono real.
+parcela, en su polo de inaccesibilidad, y uno por bloque).
 
 - **No hay polígono de bloque** en ningún plano, y no se puede disolver uno: entre
-  parcela y parcela pasa una vía o un canal, así que los linderos no comparten
-  vértices. El bloque se lee porque todas sus parcelas llevan el mismo tono, y los
-  seis tonos se reparten por coloreo de grafo para que **dos bloques vecinos nunca
-  repitan color**.
-- **Lotes con nombre propio.** El plano rotula 26 lotes por nombre
-  (`Caimos 1 Limon Tahiti 2021`, `Chiguiros 2 (R.)`). Su bloque se toma de las
-  vías del KMZ que los cruzan (mayoría ≥ 60 %); 9 quedan sin bloque y se pintan
-  en gris.
-- Los ~80 anillos sin rótulo adentro (casi todos < 1 ha) se dejan por fuera.
-- Bloques que el KMZ nombraba y el plano no dibuja (B.119, B.122, B.123) no
-  tienen polígono y por eso ya no tienen rótulo.
+  parcela y parcela pasa una vía o un canal. El bloque se lee porque todas sus
+  parcelas llevan el mismo tono, y los seis tonos se reparten por coloreo de
+  grafo para que **dos bloques vecinos nunca repitan color**.
+- **Lotes con nombre propio** (`Caimos 1 Limon Tahiti 2021`, `Chiguiros 2 (R.)`):
+  su bloque se toma de las vías del KMZ que los cruzan (mayoría ≥ 60 %); los que
+  no tienen mayoría clara se pintan en gris.
+- Las caras sin rótulo (islas, zonas sin sembrar) se dejan por fuera.
+
+**Lo que el plano no resuelve se reporta, no se inventa** (lo imprime el script):
+
+| Caso | Hoy | Por qué |
+|---|---|---|
+| Una cara con varios códigos | `B.16-P.3 / P.4 / P.8`, `B.19-P.1 / P.3`, `B.340-P.24 / P.25` | El plano vectorial no dibuja el lindero entre ellas. Salen como una sola parcela con `varios: true`. |
+| Código sin polígono | `B.16-P.5`, `B.21-P.17`, `B.344-P.12` | El rótulo cae fuera de todo lindero vectorial (o en una astilla). |
+
+El B.16 es una cuadrícula de parcelas experimentales que en el plano satelital
+sólo existe como imagen. La solución de fondo para estos casos es el shapefile
+o KMZ de parcelas del SIG del Departamento Agronómico: con él, este script se
+reemplaza por una conversión directa.
 
 Los rótulos se prenden a zooms distintos porque cumplen funciones distintas:
 
@@ -310,26 +334,52 @@ Los rótulos se prenden a zooms distintos porque cumplen funciones distintas:
 El código completo aparece de cerca porque **el número de parcela se repite entre
 bloques** (hay un `P.10` en el B.4 y otro en el B.5). Los rótulos de bloque se
 dibujan con `text-allow-overlap`, los de parcela no: 43 etiquetas siempre valen
-la pena, 500 encimadas no se leen.
+la pena, 509 encimadas no se leen.
 
 ### Capa de líneas de palma
 
-Una polilínea por hilera de palma, desde los censos por bloque en Excel del
-Departamento Agronómico (`LINEA - PALMA BLOQUE n.xlsx`, una fila por palma con
-`ID_LINEA`, `CONSE_PL` y su coordenada en grados-minutos-segundos):
+Una polilínea por hilera de palma, **un archivo por bloque** en
+`public/palmas/<bloque>.geojson`, más un índice chico (`public/palmas/indice.json`)
+con bloques, parcelas y sus cajas. La capa entera no se carga nunca: en el
+control de capas, al prender *Líneas de palma* aparece un buscador de bloques y
+parcelas ("9", "9-4" o el rótulo del plano "B.9-P.4"; Enter elige el primero) y
+sólo se baja el bloque elegido. La selección se recuerda en el navegador
+(`localStorage`, clave `mapa-palmas`) y elegir algo lleva el mapa hasta allá.
+
+Hay dos fuentes:
 
 ```bash
+# KMZ del SIG (Linea n.kmz = hileras; Palma n.kmz = palmas, sólo para contarlas)
+node scripts/kmz-palmas-a-geojson.mjs "<ruta>/Linea 9.kmz" "<ruta>/Palma 9.kmz"
+
+# Censos en Excel (una fila por palma); después, rehacer el índice
 pip install openpyxl
-python scripts/xlsx-palmas-a-geojson.py "<ruta>/LINEA - PALMA BLOQUE 7.xlsx" "<ruta>/LINEA-PALMA BLOQUE 6.xlsx" ...
+python scripts/xlsx-palmas-a-geojson.py "<ruta>/LINEA - PALMA BLOQUE 7.xlsx" ...
+node scripts/kmz-palmas-a-geojson.mjs --indice
 ```
 
-Hoy hay censo para los **bloques 6, 7, 19 y 231** (6.290 líneas, 117.845
-palmas); el resto del predio no tiene líneas. El archivo se reescribe entero, así
-que al sumar un bloque se corre con **todos** los Excel. Control de calidad: el
-96 % de las líneas caen dentro del polígono de su propia parcela, que viene de
-otra fuente (el plano PDF). Se dibujan desde z12 (el zoom con que abre el mapa):
-de lejos las hileras (~9 m) se funden en una trama tenue que marca los bloques
-censados, y desde z15 se separan en líneas.
+Hoy hay censo para los **bloques 6, 7, 9, 19 y 231**. Cada corrida reescribe
+sólo los bloques que trae.
+
+**Ojo con el datum de los KMZ.** El KMZ del bloque 9 llegó corrido ~380 m al
+este y ~290 m al sur: el exportador aplicó la transformación Datum Bogotá 1975
+→ WGS84 a coordenadas que ya estaban en MAGNA-SIRGAS. El script prueba, bloque
+por bloque, la versión cruda y la corregida contra los polígonos de sus
+parcelas, se queda con la que cae dentro e imprime el porcentaje (bloque 9: 3 %
+tal cual, 100 % corregido). Si ninguna cae dentro, avisa.
+
+### Ruteo por las calles de palma
+
+Dentro de un bloque con censo, el tramo entre dos fixes no se dibuja como recta
+sino por las **calles entre hileras** (`lib/surcos.ts`): el tractor avanza a lo
+largo de la calle, gira en la cabecera y pasa a otra, en zigzag. Cuántas calles
+recorre entre dos fixes se elige para que el largo del zigzag se parezca a lo
+que se alcanza a andar en ese tiempo a 5 km/h de labor (`VEL_LABOR_KMH`). Si un
+fix está en el lote y el otro fuera, se sale por la cabecera más cercana y el
+resto va por las vías como siempre; si los dos fixes están sobre una vía (a
+menos de 10 m), el tramo va por la vía. El ruteo baja los bloques que tocan los
+rastros, sin importar qué capa se ve. Es una reconstrucción, como el ruteo por
+vías: respeta por dónde puede andar un tractor, no sabe qué calles exactas usó.
 
 ### Control de capas
 
@@ -801,6 +851,7 @@ lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               porteria (tipos + cliente de /api/porteria)
               dispositivos (nodos con aparato distinto: Wio Tracker)
               rutas (grafo vial + A*) · useRutas (hook que lo aplica al rastro)
+              surcos (ruteo por calles de palma) · palmas (índice y bloques del censo)
               acopios (los 845 puntos) · planeacion (la ruta del día)
               vagones (la planilla: viajes, y bloque+acopio → acopio)
               registro (flota viva: máquinas, operadores, relevos)
@@ -809,7 +860,7 @@ lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               icons (SVG de máquinas) · queries · geo · ranges · types
 public/       vias-guaicaramo.geojson (capa fija de vías)
               parcelas-guaicaramo.geojson + -etiquetas.geojson (parcelas y rótulos)
-              palmas-lineas-guaicaramo.geojson (hileras de palma con censo)
+              palmas/<bloque>.geojson + indice.json (hileras de palma por bloque)
               acopios-guaicaramo.geojson (845 acopios, capa fija)
               fonts/ (glifos de los rótulos) · worker de maplibre
 scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
@@ -817,6 +868,7 @@ scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
               pdf-parcelas-a-geojson.py (regenera las parcelas desde el mismo plano)
               pdf_geo.py (lector de PDF geoespacial, lo usan los dos anteriores)
               xlsx-palmas-a-geojson.py (líneas de palma desde los censos Excel)
+              kmz-palmas-a-geojson.mjs (líneas de palma desde KMZ, corrige datum, índice)
               copiar-worker-maplibre.mjs (corre solo en predev/prebuild)
 ```
 

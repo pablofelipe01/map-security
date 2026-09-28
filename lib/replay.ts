@@ -148,7 +148,7 @@ export function positionAt(
   // las curvas. Sigue siendo una hipótesis —ver lib/rutas.ts—, sólo que ahora es
   // la hipótesis razonable en lugar de la recta imposible.
   const tramo = tramos?.[iPrev];
-  if (tramo?.porVia && tramo.largoM > 0) {
+  if ((tramo?.porVia || tramo?.porSurco) && tramo.largoM > 0) {
     const pos = posicionEnTramo(tramo, f);
     return {
       lat: pos.lat,

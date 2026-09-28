@@ -27,6 +27,7 @@ import type {
 } from "@/components/MapGL";
 import { aDMS, type Coordenada } from "@/lib/coords";
 import { CAPAS_POR_DEFECTO, type CapasVisibles } from "@/lib/capas";
+import type { Caja, SeleccionPalmas } from "@/lib/palmas";
 import {
   fetchNodes,
   fetchFleet,
@@ -63,6 +64,8 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 
 /** Clave de localStorage con las capas fijas que la persona dejó prendidas. */
 const CLAVE_CAPAS = "mapa-capas";
+/** Clave de localStorage con los bloques/parcelas de palma elegidos. */
+const CLAVE_PALMAS = "mapa-palmas";
 
 // MapLibre toca `window` al importarse: sólo en cliente.
 const MapGL = dynamic(() => import("@/components/MapGL"), {
@@ -158,6 +161,30 @@ export default function Page() {
       /* no se pudo guardar: la preferencia vale sólo para esta visita */
     }
   }, []);
+
+  /**
+   * Bloques y parcelas cuyas líneas de palma se ven. Arranca vacío: la capa
+   * entera no se carga nunca (lib/palmas.ts). Se recuerda igual que las capas,
+   * porque quien sigue una labor en el bloque 9 lo mira todos los días.
+   */
+  const [palmasSel, setPalmasSel] = useState<SeleccionPalmas>([]);
+  useEffect(() => {
+    try {
+      const g = JSON.parse(localStorage.getItem(CLAVE_PALMAS) ?? "null");
+      if (Array.isArray(g)) setPalmasSel(g.filter((x) => typeof x === "string"));
+    } catch {
+      /* sin selección guardada */
+    }
+  }, []);
+  const cambiarPalmas = useCallback((sel: SeleccionPalmas) => {
+    setPalmasSel(sel);
+    try {
+      localStorage.setItem(CLAVE_PALMAS, JSON.stringify(sel));
+    } catch {
+      /* vale sólo para esta visita */
+    }
+  }, []);
+  const [encuadre, setEncuadre] = useState<{ caja: Caja } | null>(null);
 
   // Instancia del mapa, para que el exportador de video pueda capturar su
   // canvas. Es un ref y no estado: cambiarlo no tiene que redibujar nada.
@@ -363,7 +390,19 @@ export default function Page() {
    * Llega null en el primer render y el mapa dibuja las rectas mientras tanto:
    * el ruteo mejora el dibujo, no condiciona que haya dibujo.
    */
-  const rutas = useRutasPorVia(trailsCrudos);
+  const rastrosRuteo = useMemo(() => {
+    // El instante de cada fix, en paralelo a `latlngs` (salen de los mismos
+    // puntos): dentro del lote decide cuánto zigzag cabe entre dos fixes.
+    const puntos = new Map(tracks.map((t) => [t.node.node_id, t.points]));
+    return trailsCrudos.map((t) => ({
+      nodeId: t.nodeId,
+      latlngs: t.latlngs,
+      tiempos: puntos
+        .get(t.nodeId)
+        ?.map((p) => Date.parse(p.gps_time ?? p.sample_local)),
+    }));
+  }, [trailsCrudos, tracks]);
+  const rutas = useRutasPorVia(rastrosRuteo);
 
   /**
    * El recorrido de cada nodo partido por máquina. Es lo que hace que el rastro
@@ -678,6 +717,8 @@ export default function Page() {
           fitToken={fitToken}
           punto={punto}
           capas={capas}
+          palmas={palmasSel}
+          encuadre={encuadre}
           onMap={(m) => {
             mapRef.current = m;
           }}
@@ -696,7 +737,13 @@ export default function Page() {
               setPunto(c ? { ...c, etiqueta: aDMS(c) } : null)
             }
           />
-          <CapasMapa capas={capas} onCambio={cambiarCapas} />
+          <CapasMapa
+            capas={capas}
+            onCambio={cambiarCapas}
+            palmas={palmasSel}
+            onPalmas={cambiarPalmas}
+            onEncuadrar={(caja) => setEncuadre({ caja })}
+          />
         </div>
 
         <SidePanel

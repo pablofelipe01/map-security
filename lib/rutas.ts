@@ -31,6 +31,7 @@
  */
 
 import { DEFAULT_CENTER } from "./geo";
+import { rutearPorSurcos, type Surcos } from "./surcos";
 
 /** Mismo archivo que usa la capa de vías del mapa (ver components/MapGL.tsx). */
 const VIAS_URL = "/vias-guaicaramo.geojson";
@@ -113,6 +114,12 @@ export interface Tramo {
   latlngs: [number, number][];
   /** true = resuelto por la malla vial. false = recta entre los dos fixes. */
   porVia: boolean;
+  /**
+   * true = al menos una parte va por las calles entre hileras de palma (ver
+   * lib/surcos.ts). Puede ir junto con `porVia` cuando el tramo sale del lote
+   * por la cabecera y sigue por una vía.
+   */
+  porSurco?: boolean;
   /** Largo de la polilínea en metros. */
   largoM: number;
 }
@@ -644,6 +651,63 @@ function largoDe(pts: [number, number][]): number {
 }
 
 /**
+ * Un tramo mirando primero las calles de palma y después las vías.
+ *
+ * Si los dos fixes están en calles del mismo lote, el tramo sale entero por
+ * ellas. Si sólo uno lo está, se va por su calle hasta la cabecera más cercana
+ * al otro fix y desde ahí sigue el ruteo por vías de siempre: así el tractor que
+ * termina la labor y vuelve a cargar sale del lote por donde se puede, en vez de
+ * cruzar las hileras en diagonal hasta la vía.
+ */
+function rutearConSurcos(
+  g: Grafo,
+  sur: Surcos,
+  a: [number, number],
+  b: [number, number],
+  minutos: number | null
+): Tramo {
+  // Quieto: igual que en las vías, no se rutea ruido del GPS.
+  if (dist(aPlano(a), aPlano(b)) < MIN_TRAMO_M) return tramoRecto(a, b);
+
+  // Los dos fixes encima de una vía: la máquina está transitando, aunque la
+  // vía bordee un lote con censo. Sin esto, un camión que pasa junto a las
+  // cabeceras quedaría dibujado entrando a zigzaguear entre las palmas.
+  if (anclar(g, aPlano(a), EN_VIA_M) && anclar(g, aPlano(b), EN_VIA_M)) {
+    return rutearTramo(g, a, b);
+  }
+
+  const r = rutearPorSurcos(sur, a, b, minutos);
+  if (!r) return rutearTramo(g, a, b);
+  if (r.tipo === "completo") {
+    return { latlngs: r.latlngs, porVia: false, porSurco: true, largoM: largoDe(r.latlngs) };
+  }
+
+  const ini = r.salida ? r.salida[r.salida.length - 1] : a;
+  const fin = r.entrada ? r.entrada[0] : b;
+  const medio = rutearTramo(g, ini, fin);
+  const latlngs = dedup([...(r.salida ?? [a]), ...medio.latlngs, ...(r.entrada ?? [b])]);
+  return { latlngs, porVia: medio.porVia, porSurco: true, largoM: largoDe(latlngs) };
+}
+
+/**
+ * Un fix a menos de esto de una vía se da por "sobre la vía" al decidir entre
+ * vías y calles de palma (m). Más apretado que RADIO_SNAP_M porque las
+ * cabeceras de los lotes quedan a 10-30 m de la vía que los bordea.
+ */
+const EN_VIA_M = 10;
+
+/** Lo que el ruteo de un recorrido medido puede usar además de las vías. */
+export interface OpcionesRuteo {
+  /** Calles de palma de los bloques por donde pasa el rastro. */
+  surcos?: Surcos | null;
+  /**
+   * Instante de cada fix (ms), en paralelo a `latlngs`. Con él se estima cuánto
+   * alcanzó a recorrer la máquina dentro del lote entre dos fixes.
+   */
+  tiempos?: number[];
+}
+
+/**
  * Rutea un rastro completo: devuelve un tramo por cada par de fixes
  * consecutivos, de modo que `tramos[i]` va del fix `i` al fix `i+1` y hay
  * exactamente `latlngs.length - 1` tramos. Esa correspondencia uno a uno es la
@@ -652,16 +716,26 @@ function largoDe(pts: [number, number][]): number {
 export function rutearRastro(
   g: Grafo,
   latlngs: [number, number][],
-  radio: number = RADIO_SNAP_M
+  radio: number = RADIO_SNAP_M,
+  { surcos, tiempos }: OpcionesRuteo = {}
 ): Tramo[] {
   const out: Tramo[] = [];
   for (let i = 1; i < latlngs.length; i++) {
     const a = latlngs[i - 1];
     const b = latlngs[i];
-    const k = clave(a, b, radio);
+    const minutos =
+      tiempos && Number.isFinite(tiempos[i] - tiempos[i - 1])
+        ? (tiempos[i] - tiempos[i - 1]) / 60000
+        : null;
+    // Con calles, el tiempo cambia el dibujo: entra en la clave.
+    const k =
+      clave(a, b, radio) +
+      (surcos ? `|s${minutos === null ? "-" : Math.round(minutos)}` : "");
     let tramo = cache.get(k);
     if (!tramo) {
-      tramo = rutearTramo(g, a, b, radio);
+      tramo = surcos
+        ? rutearConSurcos(g, surcos, a, b, minutos)
+        : rutearTramo(g, a, b, radio);
       // Vaciado brusco en vez de LRU: son datos derivados y baratos de recalcular,
       // y un día completo de la flota cabe de sobra antes del tope.
       if (cache.size >= CACHE_MAX) cache.clear();
