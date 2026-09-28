@@ -19,7 +19,8 @@
  * en los tres casos donde inventaría más de lo que aporta:
  *
  *  1. el fix está lejos de cualquier vía (la máquina está labrando dentro del
- *     lote, no transitando);
+ *     lote, no transitando) — "lejos" en proporción al tramo: ver
+ *     `radioDeAnclaje`;
  *  2. el desplazamiento es tan corto que cae dentro del error del GPS;
  *  3. el camino por vías da una vuelta desproporcionada frente a la recta —ahí
  *     el grafo está mal conectado o el tractor efectivamente cortó campo través.
@@ -44,6 +45,30 @@ const VIAS_URL = "/vias-guaicaramo.geojson";
  * la máquina NO está en la vía— y hay que respetarlo.
  */
 export const RADIO_SNAP_M = 35;
+
+/**
+ * Radio de anclaje en tramos largos: una fracción de la recta, con techo (m).
+ *
+ * RADIO_SNAP_M sirve para decidir si una máquina que se movió 200 m estaba en
+ * la vía o dentro del lote. Pero un camión que recorre 3,5 km entre dos fixes y
+ * al final se mete 88 m a un acopio a cargar fruta NO estuvo labrando: transitó
+ * por la vía y se salió en el último trecho. Con el radio fijo, ese fix a 88 m
+ * tumbaba el tramo entero a una recta de 3,5 km cruzando lotes (QTZ327, 28 sep),
+ * que es justo el dibujo falso que este archivo existe para evitar.
+ *
+ * Así que el radio crece con el tramo: 10 % de la recta, sin bajar de
+ * RADIO_SNAP_M ni pasar de 200 m. Un tramo corto se juzga igual que antes (en
+ * 350 m el radio sigue siendo 35 m); uno largo tolera que el extremo esté fuera
+ * de la vía, y ese trocito —del fix a la vía— queda como recta, que es lo que
+ * de verdad no se sabe. El fix no se mueve: la polilínea sigue entrando y
+ * saliendo del punto medido.
+ */
+const FRACCION_ANCLAJE = 0.1;
+const RADIO_ANCLAJE_MAX_M = 200;
+
+function radioDeAnclaje(radio: number, rectaM: number): number {
+  return Math.max(radio, Math.min(RADIO_ANCLAJE_MAX_M, rectaM * FRACCION_ANCLAJE));
+}
 
 /**
  * Cuánto se le tolera al camino por vías estirarse frente a la línea recta.
@@ -564,9 +589,10 @@ function rutearTramo(
   // Quieto: rutear ruido del GPS sólo produciría zigzag sobre la vía.
   if (recta < MIN_TRAMO_M) return tramoRecto(a, b);
 
-  const anclaA = anclar(g, pa, radio);
-  const anclaB = anclar(g, pb, radio);
-  // Alguno de los dos no está sobre una vía: el tractor está dentro del lote.
+  const r = radioDeAnclaje(radio, recta);
+  const anclaA = anclar(g, pa, r);
+  const anclaB = anclar(g, pb, r);
+  // Alguno de los dos no está cerca de una vía: el tractor está dentro del lote.
   if (!anclaA || !anclaB) return tramoRecto(a, b);
 
   const limite = recta * FACTOR_DESVIO + HOLGURA_DESVIO_M;
