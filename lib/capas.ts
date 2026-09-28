@@ -34,3 +34,20 @@ export const SRC_VIDEO_RUTA = "video-ruta";
 export const CAPA_VIDEO_RUTA = "video-ruta";
 export const SRC_VIDEO_AVANCE = "video-avance";
 export const CAPA_VIDEO_AVANCE = "video-avance";
+
+/**
+ * Capas fijas del predio que la persona puede prender y apagar desde el
+ * control de capas. Cada una agrupa varias capas de MapLibre (relleno, borde,
+ * rótulos): el mapa las resuelve en `components/MapGL.tsx`.
+ */
+export type CapaFija = "parcelas" | "vias" | "palmas" | "acopios";
+
+export type CapasVisibles = Record<CapaFija, boolean>;
+
+/** Todo prendido: es como se veía el mapa antes de tener interruptores. */
+export const CAPAS_POR_DEFECTO: CapasVisibles = {
+  parcelas: true,
+  vias: true,
+  palmas: true,
+  acopios: true,
+};

@@ -7,6 +7,7 @@ import SidePanel, { type HistoryRow } from "@/components/SidePanel";
 import ReplayBar from "@/components/ReplayBar";
 import MachineView from "@/components/MachineView";
 import BuscadorCoords from "@/components/BuscadorCoords";
+import CapasMapa from "@/components/CapasMapa";
 import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import AsignacionModal from "@/components/AsignacionModal";
 import FlotaAdmin from "@/components/FlotaAdmin";
@@ -25,6 +26,7 @@ import type {
   PuntoBuscado,
 } from "@/components/MapGL";
 import { aDMS, type Coordenada } from "@/lib/coords";
+import { CAPAS_POR_DEFECTO, type CapasVisibles } from "@/lib/capas";
 import {
   fetchNodes,
   fetchFleet,
@@ -58,6 +60,9 @@ import {
 } from "@/lib/registro";
 import type { Estadia, FleetItem, NodeRow, TrackPoint } from "@/lib/types";
 import type { Map as MapLibreMap } from "maplibre-gl";
+
+/** Clave de localStorage con las capas fijas que la persona dejó prendidas. */
+const CLAVE_CAPAS = "mapa-capas";
 
 // MapLibre toca `window` al importarse: sólo en cliente.
 const MapGL = dynamic(() => import("@/components/MapGL"), {
@@ -127,6 +132,32 @@ export default function Page() {
    * centrar el mapa (ver la prop `punto` en components/MapGL.tsx).
    */
   const [punto, setPunto] = useState<PuntoBuscado | null>(null);
+
+  /**
+   * Qué capas fijas del predio se ven. Se recuerda en el navegador: quien
+   * apaga las líneas de palma para leer los rastros no quiere volver a
+   * apagarlas cada vez que abre el mapa. Es preferencia de quien mira, no un
+   * dato: si el almacenamiento falla (ventana privada), arranca todo prendido.
+   */
+  const [capas, setCapas] = useState<CapasVisibles>(CAPAS_POR_DEFECTO);
+  useEffect(() => {
+    try {
+      const guardado = JSON.parse(localStorage.getItem(CLAVE_CAPAS) ?? "null");
+      if (guardado && typeof guardado === "object") {
+        setCapas({ ...CAPAS_POR_DEFECTO, ...guardado });
+      }
+    } catch {
+      /* sin preferencia guardada: se queda el valor por defecto */
+    }
+  }, []);
+  const cambiarCapas = useCallback((c: CapasVisibles) => {
+    setCapas(c);
+    try {
+      localStorage.setItem(CLAVE_CAPAS, JSON.stringify(c));
+    } catch {
+      /* no se pudo guardar: la preferencia vale sólo para esta visita */
+    }
+  }, []);
 
   // Instancia del mapa, para que el exportador de video pueda capturar su
   // canvas. Es un ref y no estado: cambiarlo no tiene que redibujar nada.
@@ -646,6 +677,7 @@ export default function Page() {
           onOpenMachine={openMachine}
           fitToken={fitToken}
           punto={punto}
+          capas={capas}
           onMap={(m) => {
             mapRef.current = m;
           }}
@@ -655,11 +687,17 @@ export default function Page() {
             bloques y en celular envuelve a tres renglones. Arriba a la
             izquierda, que es la esquina libre — el zoom de MapLibre está
             arriba a la derecha y la escala abajo a la izquierda. */}
-        <BuscadorCoords
-          onBuscar={(c: Coordenada | null) =>
-            setPunto(c ? { ...c, etiqueta: aDMS(c) } : null)
-          }
-        />
+        {/* El control de capas va debajo del buscador, en la misma columna:
+            así el buscador puede crecer (al mostrar el punto hallado) sin
+            taparlo. La columna no recibe clics; sólo sus hijos. */}
+        <div className="pointer-events-none absolute inset-x-2 top-2 z-[900] flex flex-col items-start gap-2 [&>*]:pointer-events-auto">
+          <BuscadorCoords
+            onBuscar={(c: Coordenada | null) =>
+              setPunto(c ? { ...c, etiqueta: aDMS(c) } : null)
+            }
+          />
+          <CapasMapa capas={capas} onCambio={cambiarCapas} />
+        </div>
 
         <SidePanel
           open={panelOpen}

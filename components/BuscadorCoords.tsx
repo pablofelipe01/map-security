@@ -70,14 +70,14 @@ export default function BuscadorCoords({ onBuscar }: Props) {
           type="button"
           onClick={() => setAbierto(true)}
           aria-label="Buscar coordenadas"
-          className="card absolute left-2 top-2 z-[900] grid h-11 w-11 place-items-center text-ink-2 shadow-card transition hover:text-accent md:hidden"
+          className="card grid h-11 w-11 place-items-center text-ink-2 shadow-card transition hover:text-accent md:hidden"
         >
           <Mira />
         </button>
       )}
 
       <div
-        className={`card absolute left-2 top-2 z-[900] w-[min(340px,calc(100%-1rem))] p-2 shadow-card ${
+        className={`card w-[min(340px,100%)] p-2 shadow-card ${
           abierto ? "" : "hidden md:block"
         }`}
       >

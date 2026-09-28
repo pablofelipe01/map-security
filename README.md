@@ -153,11 +153,12 @@ que llevarlo también.
 
 ### Capa de vías de Guaicaramo
 
-El mapa **siempre** superpone la malla vial del predio sobre el satélite: sin
-ella no se puede leer por cuál ruta va un tractor, porque en la imagen de Esri
-muchos caminos balastrados se confunden con los linderos de lote. No tiene
-interruptor — se declara dentro del estilo inicial de MapLibre, debajo de los
-rastros y los marcadores, así que nunca tapa la flota.
+El mapa superpone la malla vial del predio sobre el satélite: sin ella no se
+puede leer por cuál ruta va un tractor, porque en la imagen de Esri muchos
+caminos balastrados se confunden con los linderos de lote. Se declara dentro del
+estilo inicial de MapLibre, debajo de los rastros y los marcadores, así que nunca
+tapa la flota. Arranca prendida y se puede apagar desde el control de capas (ver
+[Control de capas](#control-de-capas)).
 
 El origen es el KMZ de topografía (`Vias Guaicaramo/vias.kmz`, 1.666 tramos).
 Se convierte a GeoJSON estático servido desde `public/`:
@@ -212,32 +213,14 @@ lo único que se rellena es el silencio entre dos mediciones. Cada tramo lleva u
 
 #### Rótulos de bloque y parcela
 
-El mismo script deja un segundo archivo, `vias-guaicaramo-etiquetas.geojson`,
-con un punto por bloque (48) y uno por parcela (494). El KMZ **no trae polígonos
-de parcela**: cada vía sabe a qué bloque y parcela sirve, así que la etiqueta se
-pone en el promedio de los vértices de las vías de ese código. No es el centroide
-topográfico —si una parcela sólo tiene vía por un costado, el punto cae sobre esa
-vía— pero ubica bien de qué parcela se habla. El día que topografía mande los
-polígonos, se reemplaza por centroides reales sin tocar el mapa.
-
-Se rotulan a zooms distintos porque cumplen funciones distintas:
-
-| | zoom | texto |
-|---|---|---|
-| Bloque | 12–16 | `B.21` |
-| Parcela | 15–16 | `P.12` |
-| Parcela | 16+ | `B.21-P.12` |
-
-El código completo aparece de cerca porque **el número de parcela se repite entre
-bloques** (hay un `P.10` en el B.4 y otro en el B.5): a secas es ambiguo, y de
-cerca es justo cuando alguien lo va a usar para decir dónde está la máquina.
+Ya no salen de este script: ver [Capa de bloques y parcelas](#capa-de-bloques-y-parcelas).
 
 ### Capa de acopios
 
 Los **845 acopios** del predio —los puntos donde se junta el fruto para
 recogerlo— salen del plano del Departamento Agronómico *Acopios Guaicaramo*
 (enero 23 de 2026). Como las vías, son infraestructura fija: van declarados en el
-estilo inicial y no tienen interruptor. Aparecen desde z12 (más lejos son una
+estilo inicial y se pueden apagar desde el control de capas. Aparecen desde z12 (más lejos son una
 mancha) y muestran su número desde z15.
 
 El origen es un **PDF geoespacial**, no un KMZ: el plano trae un diccionario
@@ -274,13 +257,11 @@ polígono contra las parcelas del mismo plano (801 de 845). Ojo: esos códigos s
 442, y casi toda la diferencia son esos renombres, no errores de ubicación. El
 `lote` es contexto, no una clave: la identidad del acopio es su posición.
 
-El plano tiene además **polígonos de parcela reales** (581 lotes cerrados, 11.322
-ha) y las redes de canales primarios y secundarios, que hoy no se dibujan. El
-script ya los extrae — están en `figuras['PARCELA']`, `['CanPrimarios']` y
-`['CanSecundarios']`— si algún día se quieren como capa.
-
-Los rótulos de bloque se dibujan con `text-allow-overlap`, los de parcela no: 48
-etiquetas siempre valen la pena, 494 encimadas no se leen.
+El plano tiene además **polígonos de parcela reales** (se dibujan: ver la sección
+siguiente) y las redes de canales primarios y secundarios, que hoy no se dibujan.
+El lector (`scripts/pdf_geo.py`, compartido con el script de parcelas) ya los
+extrae —están en `figuras['CanPrimarios']` y `['CanSecundarios']`— si algún día
+se quieren como capa.
 
 La fuente va **auto-hospedada** en `public/fonts/Open Sans Semibold/0-255.pbf`
 (77 KB). MapLibre necesita glifos en PBF para cualquier capa de texto, y usar un
@@ -288,6 +269,77 @@ servidor público de glifos metería otra dependencia de red que puede caerse �
 mismo criterio que con las teselas. Ese rango cubre ASCII y Latin-1, que alcanza
 para `B.21-P.12`; un rótulo con acentos pediría un rango que no está y no se
 dibujaría.
+
+### Capa de bloques y parcelas
+
+Los **502 polígonos de parcela** salen del mismo plano de acopios (capa `PARCELA`,
+con su rótulo en `PARCELA - Predeterminado`). El KMZ de topografía no trae
+polígonos, sólo vías.
+
+```bash
+pip install pypdf
+python scripts/pdf-parcelas-a-geojson.py "<ruta>/Acopios Guaicaramo 2026.pdf"
+```
+
+Deja dos archivos: `parcelas-guaicaramo.geojson` (polígonos con `cod_bp`,
+`bloque`, `tono`, `ha`) y `parcelas-guaicaramo-etiquetas.geojson` (un punto por
+parcela y uno por bloque). Antes los rótulos se ponían en el promedio de las vías
+de cada parcela; ahora van dentro del polígono real.
+
+- **No hay polígono de bloque** en ningún plano, y no se puede disolver uno: entre
+  parcela y parcela pasa una vía o un canal, así que los linderos no comparten
+  vértices. El bloque se lee porque todas sus parcelas llevan el mismo tono, y los
+  seis tonos se reparten por coloreo de grafo para que **dos bloques vecinos nunca
+  repitan color**.
+- **Lotes con nombre propio.** El plano rotula 26 lotes por nombre
+  (`Caimos 1 Limon Tahiti 2021`, `Chiguiros 2 (R.)`). Su bloque se toma de las
+  vías del KMZ que los cruzan (mayoría ≥ 60 %); 9 quedan sin bloque y se pintan
+  en gris.
+- Los ~80 anillos sin rótulo adentro (casi todos < 1 ha) se dejan por fuera.
+- Bloques que el KMZ nombraba y el plano no dibuja (B.119, B.122, B.123) no
+  tienen polígono y por eso ya no tienen rótulo.
+
+Los rótulos se prenden a zooms distintos porque cumplen funciones distintas:
+
+| | zoom | texto |
+|---|---|---|
+| Bloque | 12–16 | `B.21` |
+| Parcela | 15–16 | `P.12` |
+| Parcela | 16+ | `B.21-P.12` |
+
+El código completo aparece de cerca porque **el número de parcela se repite entre
+bloques** (hay un `P.10` en el B.4 y otro en el B.5). Los rótulos de bloque se
+dibujan con `text-allow-overlap`, los de parcela no: 43 etiquetas siempre valen
+la pena, 500 encimadas no se leen.
+
+### Capa de líneas de palma
+
+Una polilínea por hilera de palma, desde los censos por bloque en Excel del
+Departamento Agronómico (`LINEA - PALMA BLOQUE n.xlsx`, una fila por palma con
+`ID_LINEA`, `CONSE_PL` y su coordenada en grados-minutos-segundos):
+
+```bash
+pip install openpyxl
+python scripts/xlsx-palmas-a-geojson.py "<ruta>/LINEA - PALMA BLOQUE 7.xlsx" "<ruta>/LINEA-PALMA BLOQUE 6.xlsx" ...
+```
+
+Hoy hay censo para los **bloques 6, 7, 19 y 231** (6.290 líneas, 117.845
+palmas); el resto del predio no tiene líneas. El archivo se reescribe entero, así
+que al sumar un bloque se corre con **todos** los Excel. Control de calidad: el
+96 % de las líneas caen dentro del polígono de su propia parcela, que viene de
+otra fuente (el plano PDF). Se dibujan desde z12 (el zoom con que abre el mapa):
+de lejos las hileras (~9 m) se funden en una trama tenue que marca los bloques
+censados, y desde z15 se separan en líneas.
+
+### Control de capas
+
+Debajo del buscador de coordenadas hay un botón de capas que prende y apaga
+**bloques y parcelas** (polígonos + rótulos), **vías**, **líneas de palma** y
+**acopios**. La muestra de color de cada renglón es la leyenda. Todo arranca
+prendido; lo que la persona apaga se recuerda en su navegador (`localStorage`,
+clave `mapa-capas`) y el botón muestra cuántas capas hay apagadas, para que
+nadie crea que se perdieron las vías. Qué capas de MapLibre mueve cada
+interruptor está en `CAPAS_DE` (`components/MapGL.tsx`).
 
 #### Hasta dónde se puede acercar
 
@@ -755,11 +807,16 @@ lib/          fleet (estados) · replay (interpolación) · tractores (registro)
               video (graba el recorrido) · capas (ids compartidos con el mapa)
               coords (leer coordenadas escritas a mano)
               icons (SVG de máquinas) · queries · geo · ranges · types
-public/       vias-guaicaramo.geojson + -etiquetas.geojson (capa fija de vías)
+public/       vias-guaicaramo.geojson (capa fija de vías)
+              parcelas-guaicaramo.geojson + -etiquetas.geojson (parcelas y rótulos)
+              palmas-lineas-guaicaramo.geojson (hileras de palma con censo)
               acopios-guaicaramo.geojson (845 acopios, capa fija)
               fonts/ (glifos de los rótulos) · worker de maplibre
 scripts/      kmz-a-geojson.mjs (regenera las vías desde el KMZ)
               pdf-acopios-a-geojson.py (regenera los acopios desde el plano PDF)
+              pdf-parcelas-a-geojson.py (regenera las parcelas desde el mismo plano)
+              pdf_geo.py (lector de PDF geoespacial, lo usan los dos anteriores)
+              xlsx-palmas-a-geojson.py (líneas de palma desde los censos Excel)
               copiar-worker-maplibre.mjs (corre solo en predev/prebuild)
 ```
 

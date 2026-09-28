@@ -12,6 +12,7 @@ import {
   LngLatBounds,
   type ExpressionSpecification,
   type GeoJSONSource,
+  type LayerSpecification,
   type MapLayerMouseEvent,
   setWorkerUrl,
 } from "maplibre-gl";
@@ -43,6 +44,8 @@ import {
   CAPA_RASTROS_FLECHAS,
   CAPA_TRANSICIONES,
   CAPA_TRANSICIONES_ETIQ,
+  type CapaFija,
+  type CapasVisibles,
 } from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
 import type { SegmentoRastro, TransicionRastro } from "@/lib/atribucion";
@@ -138,6 +141,8 @@ interface Props {
    * que mostrar exactamente lo mismo que la pantalla: ver lib/video.ts.
    */
   onMap?: (map: MapLibreMap | null) => void;
+  /** Qué capas fijas del predio se ven (el control de capas de la página). */
+  capas: CapasVisibles;
 }
 
 /** Un punto puesto en el mapa a mano, con el texto con que se pidió. */
@@ -172,25 +177,69 @@ const IMG_FLECHA = "flecha-rastro";
 /**
  * Vías de Guaicaramo. Se declaran dentro del estilo inicial (y no en el `load`)
  * para que la capa exista siempre: es el fondo contra el que se lee por dónde
- * va un tractor, así que no tiene interruptor ni depende de los datos de flota.
+ * va un tractor, así que no depende de los datos de flota. Se puede apagar
+ * desde el control de capas, pero arranca prendida.
  * El GeoJSON se genera desde el KMZ de topografía con
  * `scripts/kmz-a-geojson.mjs`; ver README.
  */
 const VIAS_URL = "/vias-guaicaramo.geojson";
 
 /**
- * Rótulos de bloque y parcela, derivados del mismo KMZ (ver el script). Van en
- * su propia fuente porque son puntos, no líneas, y porque se prenden a zooms
- * distintos: el bloque orienta desde lejos, la parcela sólo tiene sentido
- * cuando ya estás mirando el lote.
+ * Parcelas: un polígono por parcela, con su bloque y un `tono` 0..5 repartido
+ * para que dos bloques vecinos nunca compartan color. No hay polígono de
+ * bloque en ningún plano: el bloque se lee porque todas sus parcelas llevan el
+ * mismo tono. Sale del plano de acopios con `scripts/pdf-parcelas-a-geojson.py`.
  */
-const SRC_ETIQ = "vias-etiquetas";
-const ETIQ_URL = "/vias-guaicaramo-etiquetas.geojson";
+const SRC_PARCELAS = "parcelas";
+const PARCELAS_URL = "/parcelas-guaicaramo.geojson";
+
+/**
+ * Rótulos de bloque y parcela, del mismo script que las parcelas. Van en su
+ * propia fuente porque son puntos, no polígonos (un polígono rotulado repite
+ * el texto en cada tesela que toca), y porque se prenden a zooms distintos: el
+ * bloque orienta desde lejos, la parcela sólo tiene sentido cuando ya estás
+ * mirando el lote.
+ */
+const SRC_ETIQ = "parcelas-etiquetas";
+const ETIQ_URL = "/parcelas-guaicaramo-etiquetas.geojson";
+
+/**
+ * Tonos de bloque. Apagados y con poca opacidad: la capa es de fondo, tiene que
+ * dejar ver la imagen del lote. Ninguno repite el ámbar de las vías ni el verde
+ * de los acopios.
+ */
+const PARCELAS_COLOR: ExpressionSpecification = [
+  "match",
+  ["get", "tono"],
+  0,
+  "#60a5fa",
+  1,
+  "#f472b6",
+  2,
+  "#a78bfa",
+  3,
+  "#fb923c",
+  4,
+  "#2dd4bf",
+  5,
+  "#e879f9",
+  // Lotes sin bloque conocido: gris, para no fingir un bloque.
+  "#9e9eaf",
+];
+
+/**
+ * Líneas de palma: una polilínea por hilera, del censo por bloque en Excel
+ * (`scripts/xlsx-palmas-a-geojson.py`). Sólo existen para los bloques que
+ * tienen censo; el resto del predio no tiene líneas.
+ */
+const SRC_PALMAS = "palmas-lineas";
+const PALMAS_URL = "/palmas-lineas-guaicaramo.geojson";
+const PALMAS_COLOR = "#d9f99d";
 
 /**
  * Acopios: los 845 puntos donde se junta el fruto para recogerlo. Como las
  * vías, son infraestructura fija del predio y van declarados en el estilo
- * inicial, sin interruptor.
+ * inicial.
  *
  * El GeoJSON sale del plano del Departamento Agronómico ("Acopios Guaicaramo
  * 2026", enero 23 de 2026) con `scripts/pdf-acopios-a-geojson.py`; ver README.
@@ -206,6 +255,35 @@ const ACOPIOS_URL = "/acopios-guaicaramo.geojson";
  * color repetido haría dudar de qué se está mirando.
  */
 const ACOPIOS_COLOR = "#bcd983";
+
+/**
+ * Qué capas de MapLibre prende y apaga cada interruptor del control de capas.
+ * Los rótulos de bloque y parcela van con las parcelas: sin el polígono, un
+ * "P.9" suelto no dice qué terreno es.
+ */
+const CAPAS_DE: Record<CapaFija, string[]> = {
+  parcelas: ["parcelas-relleno", "parcelas-borde", "etiq-bloque", "etiq-parcela"],
+  vias: ["vias-borde", SRC_VIAS, "vias-proyectadas"],
+  palmas: [SRC_PALMAS],
+  acopios: [SRC_ACOPIOS, "acopios-num"],
+};
+
+/** Aplica `visibility` a las capas agrupadas del estilo inicial. */
+function conVisibilidad<T extends { id: string; layout?: object }>(
+  capas: T[],
+  visibles: CapasVisibles
+): T[] {
+  return capas.map((c) => {
+    const grupo = (Object.keys(CAPAS_DE) as CapaFija[]).find((g) =>
+      CAPAS_DE[g].includes(c.id)
+    );
+    if (!grupo) return c;
+    return {
+      ...c,
+      layout: { ...c.layout, visibility: visibles[grupo] ? "visible" : "none" },
+    } as T;
+  });
+}
 
 /**
  * Enlaces de la red mesh. Como las vías, va declarado dentro del estilo inicial:
@@ -331,6 +409,7 @@ export default function MapGL({
   // dentro del componente.
   punto: puntoBuscado,
   onMap,
+  capas,
 }: Props) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -350,6 +429,10 @@ export default function MapGL({
   // Handlers frescos sin recrear el mapa.
   const cbRef = useRef({ onSelect, onOpenMachine, onMap });
   cbRef.current = { onSelect, onOpenMachine, onMap };
+  // El estilo inicial se arma una sola vez; lee de aquí qué capas arrancan
+  // apagadas. Los cambios posteriores los aplica el efecto de `capas`.
+  const capasRef = useRef(capas);
+  capasRef.current = capas;
 
   /** Ejecuta ahora si el mapa ya cargó; si no, lo deja para el `load`. */
   const whenReady = useCallback((fn: () => void) => {
@@ -384,13 +467,56 @@ export default function MapGL({
             maxzoom: 18,
             attribution: "Imagery © Esri",
           },
+          [SRC_PARCELAS]: { type: "geojson", data: PARCELAS_URL },
+          [SRC_PALMAS]: { type: "geojson", data: PALMAS_URL },
           [SRC_VIAS]: { type: "geojson", data: VIAS_URL },
           [SRC_ETIQ]: { type: "geojson", data: ETIQ_URL },
           [SRC_ACOPIOS]: { type: "geojson", data: ACOPIOS_URL },
           [SRC_RED]: { type: "geojson", data: FC_VACIA },
         },
-        layers: [
+        layers: conVisibilidad<LayerSpecification>([
           { id: "esri", type: "raster", source: "esri" },
+          // Parcelas y palmas van primero: son lo más de fondo. Las vías se
+          // leen encima de ellas, y los rastros encima de todo.
+          {
+            id: "parcelas-relleno",
+            type: "fill",
+            source: SRC_PARCELAS,
+            paint: {
+              "fill-color": PARCELAS_COLOR,
+              // Más tenue de cerca: a z16 ya se está mirando el cultivo.
+              "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.22, 16, 0.1],
+            },
+          },
+          {
+            id: "parcelas-borde",
+            type: "line",
+            source: SRC_PARCELAS,
+            minzoom: 11,
+            layout: { "line-join": "round" },
+            paint: {
+              "line-color": "#ffffff",
+              "line-opacity": 0.45,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 16, 1.2],
+            },
+          },
+          // Líneas de palma. Desde z12, que es el zoom con que abre el mapa: con
+          // sólo cuatro bloques censados, si la capa esperara a z15 casi nunca
+          // se vería y el interruptor parecería no hacer nada. De lejos las
+          // hileras (~9 m) se funden en una trama tenue que marca qué bloques
+          // tienen censo; desde z15 se separan en líneas.
+          {
+            id: SRC_PALMAS,
+            type: "line",
+            source: SRC_PALMAS,
+            minzoom: 12,
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": PALMAS_COLOR,
+              "line-opacity": ["interpolate", ["linear"], ["zoom"], 12, 0.35, 15, 0.3, 17, 0.55],
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.3, 15, 0.6, 18, 1.6],
+            },
+          },
           // Filete oscuro debajo de la vía: sin él las líneas claras se pierden
           // sobre los caminos claros de la propia imagen satelital.
           {
@@ -520,7 +646,7 @@ export default function MapGL({
               "text-font": FUENTE,
               "text-size": ["interpolate", ["linear"], ["zoom"], 12, 12, 15, 17],
               "text-letter-spacing": 0.08,
-              // El rótulo de bloque no se sacrifica al declutter: son 48 en todo
+              // El rótulo de bloque no se sacrifica al declutter: son 43 en todo
               // el predio y sin ellos no hay forma de ubicarse.
               "text-allow-overlap": true,
               "text-ignore-placement": true,
@@ -532,7 +658,7 @@ export default function MapGL({
               "text-opacity": 0.85,
             },
           },
-          // Rótulo de parcela: sólo de cerca. Son 494, a menos zoom serían una
+          // Rótulo de parcela: sólo de cerca. Son ~500, a menos zoom serían una
           // mancha de texto sobre el lote.
           {
             id: "etiq-parcela",
@@ -591,7 +717,7 @@ export default function MapGL({
               "text-halo-width": 1.4,
             },
           },
-        ],
+        ], capasRef.current),
       },
       center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
       zoom: 12,
@@ -1323,6 +1449,20 @@ ${
 
     whenReady(dibujar);
   }, [puntoBuscado, whenReady]);
+
+  // --- Interruptores del control de capas ---
+  useEffect(() => {
+    whenReady(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      for (const grupo of Object.keys(CAPAS_DE) as CapaFija[]) {
+        const vis = capas[grupo] ? "visible" : "none";
+        for (const id of CAPAS_DE[grupo]) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+        }
+      }
+    });
+  }, [capas, whenReady]);
 
   return <div ref={divRef} className="absolute inset-0" />;
 }

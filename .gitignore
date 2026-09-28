@@ -28,3 +28,4 @@ npm-debug.log*
 *.local.sql
 supabase/acopios-datos.sql
 /supabase
+__pycache__/
