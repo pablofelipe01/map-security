@@ -31,7 +31,13 @@
  */
 
 import { DEFAULT_CENTER } from "./geo";
-import { rutearPorSurcos, type Surcos } from "./surcos";
+import {
+  claveUbicacion,
+  rutearPorSurcos,
+  ubicarRastro,
+  type Surcos,
+  type Ubicacion,
+} from "./surcos";
 
 /** Mismo archivo que usa la capa de vías del mapa (ver components/MapGL.tsx). */
 const VIAS_URL = "/vias-guaicaramo.geojson";
@@ -664,7 +670,8 @@ function rutearConSurcos(
   sur: Surcos,
   a: [number, number],
   b: [number, number],
-  minutos: number | null
+  minutos: number | null,
+  pre?: { ua: Ubicacion | null; ub: Ubicacion | null }
 ): Tramo {
   // Quieto: igual que en las vías, no se rutea ruido del GPS.
   if (dist(aPlano(a), aPlano(b)) < MIN_TRAMO_M) return tramoRecto(a, b);
@@ -676,7 +683,7 @@ function rutearConSurcos(
     return rutearTramo(g, a, b);
   }
 
-  const r = rutearPorSurcos(sur, a, b, minutos);
+  const r = rutearPorSurcos(sur, a, b, minutos, pre);
   if (!r) return rutearTramo(g, a, b);
   if (r.tipo === "completo") {
     return { latlngs: r.latlngs, porVia: false, porSurco: true, largoM: largoDe(r.latlngs) };
@@ -720,9 +727,13 @@ export function rutearRastro(
   { surcos, tiempos }: OpcionesRuteo = {}
 ): Tramo[] {
   const out: Tramo[] = [];
+  // En qué calle cae cada fix, mirando el rastro entero y no el fix suelto:
+  // así un reporte en la linde entre dos parcelas no saca al tractor del lote.
+  const ubic = surcos ? ubicarRastro(surcos, latlngs) : null;
   for (let i = 1; i < latlngs.length; i++) {
     const a = latlngs[i - 1];
     const b = latlngs[i];
+    const pre = ubic ? { ua: ubic[i - 1], ub: ubic[i] } : undefined;
     const minutos =
       tiempos && Number.isFinite(tiempos[i] - tiempos[i - 1])
         ? (tiempos[i] - tiempos[i - 1]) / 60000
@@ -730,11 +741,14 @@ export function rutearRastro(
     // Con calles, el tiempo cambia el dibujo: entra en la clave.
     const k =
       clave(a, b, radio) +
-      (surcos ? `|s${minutos === null ? "-" : Math.round(minutos)}` : "");
+      (surcos && pre
+        ? `|s${minutos === null ? "-" : Math.round(minutos)}` +
+          `|${claveUbicacion(surcos, pre.ua)}>${claveUbicacion(surcos, pre.ub)}`
+        : "");
     let tramo = cache.get(k);
     if (!tramo) {
       tramo = surcos
-        ? rutearConSurcos(g, surcos, a, b, minutos)
+        ? rutearConSurcos(g, surcos, a, b, minutos, pre)
         : rutearTramo(g, a, b, radio);
       // Vaciado brusco en vez de LRU: son datos derivados y baratos de recalcular,
       // y un día completo de la flota cabe de sobra antes del tope.

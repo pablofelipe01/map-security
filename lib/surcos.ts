@@ -99,7 +99,7 @@ export interface Surcos {
 }
 
 /** Dónde cae un punto dentro de las calles. */
-interface Ubicacion {
+export interface Ubicacion {
   juego: Juego;
   j: number;
   /** Posición a lo largo de la calle, ya recortada a su largo. */
@@ -283,6 +283,61 @@ function ubicarCerca(sur: Surcos, p: Punto, radio: number): Ubicacion | null {
   return mejor;
 }
 
+/**
+ * Hasta dónde se le busca calle en el lote de sus vecinos a un fix que cayó en
+ * otro lote (m). Es el borde entre dos parcelas: el GPS del nodo yerra 5-10 m y
+ * las cabeceras de dos lotes vecinos quedan a pocos metros, así que un fix ahí
+ * no dice de qué lado estaba el tractor. Más lejos, el fix sí dice que salió.
+ */
+const RADIO_BORDE_M = 25;
+
+/**
+ * Ubica en las calles todos los fixes de un rastro, con continuidad.
+ *
+ * Cada fix por separado se va a la calle más cercana, de cualquier lote y de
+ * cualquier rumbo. En el borde entre parcelas eso falla: el MA106 el 28 sep
+ * labró sólo la 9-4, pero dos fixes suyos cayeron sobre la linde con la 9-3 y
+ * uno quedó en las calles de la 9-3, que están sembradas en otro rumbo. El
+ * tramo de salida se dibujaba entonces por la cabecera de la 9-3, con las
+ * líneas cruzadas respecto al cultivo, en una parcela donde no estuvo.
+ *
+ * Por eso, si ningún vecino del fix (el anterior o el siguiente) está en su
+ * mismo juego de calles, y el fix queda a menos de `RADIO_BORDE_M` de una calle
+ * del juego de un vecino, se pasa a ese juego: un tractor no cambia de lote
+ * por un solo reporte que cae justo en la linde.
+ */
+export function ubicarRastro(
+  sur: Surcos,
+  latlngs: [number, number][]
+): (Ubicacion | null)[] {
+  const pts = latlngs.map(aPlano);
+  const crudas = pts.map((p) => ubicar(sur, p));
+  return crudas.map((u, i) => {
+    if (!u) return u;
+    const vecinos = [crudas[i - 1], crudas[i + 1]].filter(
+      (v): v is Ubicacion => !!v
+    );
+    if (!vecinos.length || vecinos.some((v) => v.juego === u.juego)) return u;
+    let mejor: Ubicacion | null = null;
+    let dMejor = Infinity;
+    for (const v of vecinos) {
+      const alt = ubicarEn(v.juego, pts[i], RADIO_BORDE_M);
+      if (!alt) continue;
+      const d = dist(pts[i], aJuego(v.juego, alt.s, v.juego.calles[alt.j].o));
+      if (d < dMejor) {
+        dMejor = d;
+        mejor = alt;
+      }
+    }
+    return mejor ?? u;
+  });
+}
+
+/** Identifica una ubicación para la caché de tramos. */
+export function claveUbicacion(sur: Surcos, u: Ubicacion | null | undefined): string {
+  return u ? `${sur.juegos.indexOf(u.juego)}.${u.j}` : "-";
+}
+
 // ---------------------------------------------------------------- zigzag
 
 const extremo = (c: Calle, e: 0 | 1) => (e === 0 ? c.s0 : c.s1);
@@ -404,12 +459,14 @@ export function rutearPorSurcos(
   sur: Surcos,
   a: [number, number],
   b: [number, number],
-  minutos: number | null
+  minutos: number | null,
+  /** Ubicaciones ya resueltas con continuidad (ver `ubicarRastro`). */
+  pre?: { ua: Ubicacion | null; ub: Ubicacion | null }
 ): ResultadoSurco {
   const pa = aPlano(a);
   const pb = aPlano(b);
-  let ua = ubicar(sur, pa);
-  let ub = ubicar(sur, pb);
+  let ua = pre ? pre.ua : ubicar(sur, pa);
+  let ub = pre ? pre.ub : ubicar(sur, pb);
   if (!ua && !ub) return null;
   // Uno en calle y el otro en la cabecera del mismo lote: se ancla también.
   // Si no, en la cabecera de otro lote vecino: el tramo sale de un lote y
