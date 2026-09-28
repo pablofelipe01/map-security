@@ -45,7 +45,30 @@ type Timed = TrackPoint & { _m?: number };
 function minutoDe(p: Timed): number {
   // Memoizado porque el replay evalúa los mismos puntos ~8 veces por segundo y
   // formatToParts es costoso.
-  return (p._m ??= minuteOfDay(p.gps_time ?? p.sample_local));
+  return (p._m ??= minutoDelFix(p));
+}
+
+/**
+ * Minuto del día (en el día al que pertenece la fila) en que se tomó un fix.
+ *
+ * Se usa la hora del GPS porque es la del fix; `sample_local` es la del
+ * sondeo, hasta ~10 min después. Pero el día lo decide `sample_local`: es la
+ * columna por la que se filtra la consulta. Un fix tomado a las 23:59 y
+ * sondeado a las 00:00 entra en el día nuevo con una hora GPS del anterior, y
+ * su minuto saldría 1439 siendo el PRIMER punto de la lista. Con eso el replay
+ * creía que la jornada no arrancaba nunca y dejaba la máquina quieta en su
+ * primer fix todo el día (y el video salía sin movimiento). Si las dos horas
+ * caen en lados distintos de la medianoche, el fix se clava al borde del día.
+ */
+export function minutoDelFix(p: TrackPoint): number {
+  const mMuestra = minuteOfDay(p.sample_local);
+  if (!p.gps_time) return mMuestra;
+  const mGps = minuteOfDay(p.gps_time);
+  // Más de 12 h de diferencia = cruzaron la medianoche (el desfase real entre
+  // fix y sondeo es de minutos).
+  if (mGps - mMuestra > 720) return 0;
+  if (mMuestra - mGps > 720) return 1440 - 1e-3;
+  return mGps;
 }
 
 /**

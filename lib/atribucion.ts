@@ -21,6 +21,7 @@ import { computeStats, enrichTrack } from "./geo";
 import { unirTramos, type Tramo } from "./rutas";
 import { maquinaDeNodoEn, operadorDeMaquinaEn, type Flota } from "./registro";
 import { COLOR_DEFAULT } from "./tractores";
+import { GAP_INTERPOLA_MIN } from "./replay";
 import type { TrackPoint } from "./types";
 
 /** Un pedazo del recorrido hecho con una misma máquina. */
@@ -39,6 +40,13 @@ export interface PiezaRastro {
   metros: number;
   desde: string | null;
   hasta: string | null;
+  /**
+   * Índices de la pieza dentro de `points`, [idxDesde, idxHasta). Dos piezas
+   * seguidas comparten el fix del corte (`idxHasta - 1` de una es `idxDesde` de
+   * la siguiente): ahí es donde el rastro cambia de color en el mapa.
+   */
+  idxDesde: number;
+  idxHasta: number;
 }
 
 const horaDe = (p: TrackPoint) => p.gps_time ?? p.sample_local;
@@ -101,6 +109,8 @@ export function partirPorMaquina(
       metros: computeStats(enrichTrack(trozo), []).totalDistanceM,
       desde: horaDe(trozo[0]),
       hasta: horaDe(trozo[trozo.length - 1]),
+      idxDesde: desdeIdx,
+      idxHasta: fin,
     });
   }
 
@@ -110,4 +120,124 @@ export function partirPorMaquina(
 /** true si el día tuvo más de una máquina (lo único que hace útil partir). */
 export function huboCambioDeMaquina(piezas: PiezaRastro[]): boolean {
   return piezas.length > 1;
+}
+
+/**
+ * Un trozo dibujable del rastro: tramos seguidos de la misma máquina y de la
+ * misma naturaleza.
+ *
+ * `sinSenal` = entre esos dos fixes pasaron más de `GAP_INTERPOLA_MIN` minutos.
+ * La línea que los une no es un recorrido sino un silencio del nodo, y el mapa
+ * la dibuja punteada para que no se lea como un trayecto medido. Es el mismo
+ * umbral con el que el replay deja de deslizar el marcador.
+ */
+export interface SegmentoRastro {
+  color: string;
+  sinSenal: boolean;
+  latlngs: [number, number][];
+}
+
+/**
+ * Parte el rastro en segmentos de color y trazo uniformes.
+ *
+ * Trabaja tramo a tramo (`tramos[i]` va del fix i al i+1) para que la geometría
+ * ruteada por vías y el corte por máquina coincidan exactamente: el color
+ * cambia en el mismo fix en que cambia en el panel. Sin ruteo todavía, cada
+ * tramo es la recta entre sus dos fixes.
+ */
+export function segmentosDelRastro(
+  points: TrackPoint[],
+  piezas: PiezaRastro[],
+  tramos: Tramo[] | null | undefined,
+  colorBase: string
+): SegmentoRastro[] {
+  if (points.length < 2) return [];
+
+  // Color de cada tramo según la pieza que lo contiene. La pieza k cubre los
+  // tramos [idxDesde, idxHasta - 1).
+  const colorTramo: string[] = new Array(points.length - 1).fill(colorBase);
+  for (const p of piezas) {
+    for (let i = p.idxDesde; i < p.idxHasta - 1 && i < colorTramo.length; i++) {
+      colorTramo[i] = p.color;
+    }
+  }
+
+  const out: SegmentoRastro[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const huecoMin = (Date.parse(horaDe(b)) - Date.parse(horaDe(a))) / 60_000;
+    const sinSenal = huecoMin > GAP_INTERPOLA_MIN;
+    // En un silencio no se rutea por vías: el camino más corto entre dos
+    // puntos separados por una hora sin reporte afirmaría demasiado.
+    const geom: [number, number][] =
+      !sinSenal && tramos?.[i]
+        ? tramos[i].latlngs
+        : [
+            [a.lat, a.lon],
+            [b.lat, b.lon],
+          ];
+
+    const u = out[out.length - 1];
+    if (u && u.color === colorTramo[i] && u.sinSenal === sinSenal) {
+      // Se cose al anterior sin repetir el fix compartido.
+      const ult = u.latlngs[u.latlngs.length - 1];
+      for (const q of geom) {
+        if (q[0] === ult[0] && q[1] === ult[1]) continue;
+        u.latlngs.push(q);
+      }
+    } else {
+      out.push({ color: colorTramo[i], sinSenal, latlngs: [...geom] });
+    }
+  }
+  return out;
+}
+
+/** El fix donde el rastro pasa de una máquina a otra, listo para el mapa. */
+export interface TransicionRastro {
+  lat: number;
+  lon: number;
+  /** Hora del fix del corte (ISO): el último reporte con la máquina anterior. */
+  t: string | null;
+  de: string;
+  a: string;
+  /** Color de la máquina nueva, que es el del tramo que sale del punto. */
+  color: string;
+}
+
+/**
+ * Los puntos de cambio de vehículo del día, uno por cada frontera entre piezas.
+ *
+ * Caen en el fix compartido por las dos piezas —el último de la máquina
+ * anterior—, que es exactamente donde el rastro cambia de color. El pin de la
+ * hora REGISTRADA del cambio es otro (`cambios` en app/page.tsx): este dice
+ * dónde se ve el cambio en el recorrido, aquel cuándo lo anotó alguien.
+ */
+export function transicionesDelRastro(
+  points: TrackPoint[],
+  piezas: PiezaRastro[]
+): TransicionRastro[] {
+  const out: TransicionRastro[] = [];
+  for (let k = 1; k < piezas.length; k++) {
+    const p = points[piezas[k].idxDesde];
+    if (!p) continue;
+    out.push({
+      lat: p.lat,
+      lon: p.lon,
+      t: horaDe(p),
+      de: codigoMapa(piezas[k - 1]),
+      a: codigoMapa(piezas[k]),
+      color: piezas[k].color,
+    });
+  }
+  return out;
+}
+
+/**
+ * El código como se puede escribir en el mapa. La fuente del mapa sólo trae el
+ * rango ASCII (ver FUENTE en components/MapGL.tsx): el "—" de "sin máquina" no
+ * se dibujaría, así que se escribe con letras.
+ */
+function codigoMapa(p: PiezaRastro): string {
+  return p.maquinaId ? p.codigo : "SIN MAQ";
 }

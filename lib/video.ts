@@ -7,6 +7,11 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
   CAPA_EXTREMOS,
   CAPA_RASTROS,
+  CAPA_RASTROS_BORDE,
+  CAPA_RASTROS_SIN_SENAL,
+  CAPA_RASTROS_FLECHAS,
+  CAPA_TRANSICIONES,
+  CAPA_TRANSICIONES_ETIQ,
   CAPA_RED,
   CAPA_RED_ETIQ,
   CAPA_CAMBIOS,
@@ -19,7 +24,12 @@ import {
 import { MOVIMIENTO_M } from "./fleet";
 import { haversineM } from "./geo";
 import { machineSVG } from "./icons";
-import { minuteOfDay, positionAt, ventanaConDatos } from "./replay";
+import {
+  GAP_INTERPOLA_MIN,
+  minutoDelFix,
+  positionAt,
+  ventanaConDatos,
+} from "./replay";
 import type { Tramo } from "./rutas";
 import type { TipoMaquina } from "./tractores";
 import type { TrackPoint } from "./types";
@@ -82,6 +92,19 @@ const SEG_CLAVE = 2;
 
 /** Cuánto se le da al codificador para demostrar que funciona, antes de descartarlo. */
 const PRUEBA_MS = 4000;
+
+/**
+ * Tope de minutos "de video" para un lapso sin movimiento o sin señal.
+ *
+ * El video reparte su duración en tiempo efectivo, no de reloj: una máquina
+ * que trabajó 2 h en una jornada de 18 h pasaría 90 % del video quieta en la
+ * base. Cada pausa o silencio cuenta como mucho esto; el reloj del HUD sigue
+ * mostrando la hora real, así que el salto se ve en vez de esconderse.
+ */
+const PAUSA_MAX_MIN = 3;
+
+/** Contexto que se deja antes del primer movimiento y después del último (min). */
+const MARGEN_MIN = 10;
 
 /** Zoom de la cámara cuando sigue a la máquina. */
 const ZOOM_SEGUIMIENTO = 15.5;
@@ -225,6 +248,7 @@ export async function grabarRutaVideo(t: TrabajoVideo): Promise<ResultadoVideo> 
 
   const icono = await cargarIcono(t.tipo, t.color);
   const acumulado = distanciasAcumuladas(t.points);
+  const aMinuto = lineaDeTiempo(t.points, ventana);
 
   // Estado del mapa que hay que devolver como estaba.
   const camara = {
@@ -245,6 +269,11 @@ export async function grabarRutaVideo(t: TrabajoVideo): Promise<ResultadoVideo> 
     // predio de lado a lado y en el video se leerían como parte del recorrido.
     for (const capa of [
       CAPA_RASTROS,
+      CAPA_RASTROS_BORDE,
+      CAPA_RASTROS_SIN_SENAL,
+      CAPA_RASTROS_FLECHAS,
+      CAPA_TRANSICIONES,
+      CAPA_TRANSICIONES_ETIQ,
       CAPA_EXTREMOS,
       CAPA_RED,
       CAPA_RED_ETIQ,
@@ -286,7 +315,7 @@ export async function grabarRutaVideo(t: TrabajoVideo): Promise<ResultadoVideo> 
       // Los cuadros de cola repiten el último minuto: el recorrido completo
       // queda a la vista un instante antes de que el archivo corte.
       const f = Math.min(1, i / (total - 1));
-      const minuto = ventana.desde + (ventana.hasta - ventana.desde) * f;
+      const minuto = aMinuto(f);
       const pos = positionAt(t.points, minuto, t.tramos);
 
       if (pos) {
@@ -609,8 +638,10 @@ function montarCapas(map: MapLibreMap, t: TrabajoVideo) {
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
       "line-color": "#ffffff",
-      "line-width": 2.5,
-      "line-opacity": 0.28,
+      // Tenue, pero visible: a 0,28 se perdía entre las vías amarillas y el
+      // video no mostraba por dónde iba a pasar la máquina.
+      "line-width": 3,
+      "line-opacity": 0.6,
       "line-dasharray": [2, 2],
     },
   });
@@ -941,6 +972,66 @@ function recortar(ctx: CanvasRenderingContext2D, txt: string, max: number) {
 
 /* ========================= cifras ========================= */
 
+/**
+ * De avance del video (0-1) a minuto real del día.
+ *
+ * Recorta la jornada al lapso con movimiento (más `MARGEN_MIN` de contexto a
+ * cada lado) y, dentro, le da a cada intervalo entre fixes su duración real si
+ * la máquina se movió y como mucho `PAUSA_MAX_MIN` si estuvo quieta o el nodo
+ * no reportó. Sin movimiento en todo el día, se usa la jornada entera.
+ */
+function lineaDeTiempo(
+  points: TrackPoint[],
+  ventana: { desde: number; hasta: number }
+): (f: number) => number {
+  const ms = points.map(minutoDelFix);
+  const mueve = (i: number) =>
+    i > 0 &&
+    (points[i].dist_prev_fix_m ?? haversineM(points[i - 1], points[i])) >=
+      MOVIMIENTO_M;
+
+  let ini = 0;
+  let fin = ms.length - 1;
+  const primero = ms.findIndex((_, i) => mueve(i));
+  if (primero > 0) {
+    ini = primero - 1;
+    for (let i = ms.length - 1; i > 0; i--) {
+      if (mueve(i)) {
+        fin = i;
+        break;
+      }
+    }
+  }
+  const desde = Math.max(ventana.desde, ms[ini] - MARGEN_MIN);
+  const hasta = Math.min(ventana.hasta, ms[fin] + MARGEN_MIN);
+
+  // Intervalos [a, b] con su peso en el video.
+  const tramos: { a: number; b: number; peso: number }[] = [];
+  const pausa = (a: number, b: number) =>
+    b > a && tramos.push({ a, b, peso: Math.min(b - a, PAUSA_MAX_MIN) });
+  pausa(desde, ms[ini]);
+  for (let i = ini + 1; i <= fin; i++) {
+    const a = ms[i - 1];
+    const b = ms[i];
+    if (b <= a) continue;
+    if (mueve(i) && b - a <= GAP_INTERPOLA_MIN) tramos.push({ a, b, peso: b - a });
+    else pausa(a, b);
+  }
+  pausa(ms[fin], hasta);
+
+  const total = tramos.reduce((s, x) => s + x.peso, 0);
+  if (total <= 0) return () => desde;
+
+  return (f: number) => {
+    let resta = Math.max(0, Math.min(1, f)) * total;
+    for (const x of tramos) {
+      if (resta <= x.peso) return x.a + (x.b - x.a) * (resta / x.peso);
+      resta -= x.peso;
+    }
+    return hasta;
+  };
+}
+
 /** Hora del día en formato 12 h, con el sufijo aparte para dibujarlo menor. */
 function hora12(minuto: number): { hora: string; sufijo: string } {
   const h24 = Math.floor(minuto / 60) % 24;
@@ -974,7 +1065,7 @@ function distanciasAcumuladas(points: TrackPoint[]) {
       const tramo = p.dist_prev_fix_m ?? haversineM(prev, p);
       if (tramo >= MOVIMIENTO_M) acum += tramo;
     }
-    minutos.push(minuteOfDay(p.gps_time ?? p.sample_local));
+    minutos.push(minutoDelFix(p));
     metros.push(acum);
   }
   return { minutos, metros };

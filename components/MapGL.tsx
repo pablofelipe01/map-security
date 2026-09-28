@@ -38,8 +38,14 @@ import {
   CAPA_RED_ETIQ,
   CAPA_CAMBIOS,
   CAPA_CAMBIOS_HORA,
+  CAPA_RASTROS_BORDE,
+  CAPA_RASTROS_SIN_SENAL,
+  CAPA_RASTROS_FLECHAS,
+  CAPA_TRANSICIONES,
+  CAPA_TRANSICIONES_ETIQ,
 } from "@/lib/capas";
 import { DEFAULT_CENTER, fmtTime } from "@/lib/geo";
+import type { SegmentoRastro, TransicionRastro } from "@/lib/atribucion";
 
 /** Un rastro dibujable: los puntos de una máquina en el período visible. */
 export interface Trail {
@@ -54,11 +60,14 @@ export interface Trail {
    */
   ruta?: [number, number][] | null;
   /**
-   * El rastro partido por máquina, cuando el nodo cambió de vehículo ese día.
-   * Cada pieza se dibuja con el color de SU máquina; sin esto el día entero
-   * saldría del color de la máquina que quedó al cierre. Ver lib/atribucion.ts.
+   * El rastro listo para dibujar: partido por máquina (cada trozo con el color
+   * de SU máquina, no el de la que quedó al cierre) y con los silencios largos
+   * del nodo marcados para ir punteados. Ver `segmentosDelRastro` en
+   * lib/atribucion.ts. Sin segmentos se dibuja `ruta ?? latlngs` de un color.
    */
-  piezas?: { color: string; latlngs: [number, number][]; ruta: [number, number][] | null }[];
+  segmentos?: SegmentoRastro[];
+  /** Fixes donde el nodo pasó de una máquina a otra (ver lib/atribucion.ts). */
+  transiciones?: TransicionRastro[];
   desde: string | null;
   hasta: string | null;
 }
@@ -155,6 +164,10 @@ const SRC_TRAILS = CAPA_RASTROS;
 const SRC_ENDS = CAPA_EXTREMOS;
 const SRC_VIAS = "vias";
 const SRC_CAMBIOS = CAPA_CAMBIOS;
+const SRC_TRANSICIONES = CAPA_TRANSICIONES;
+/** Las capas de línea del rastro: se tocan y se resaltan igual. */
+const CAPAS_LINEA_RASTRO = [CAPA_RASTROS, CAPA_RASTROS_SIN_SENAL];
+const IMG_FLECHA = "flecha-rastro";
 
 /**
  * Vías de Guaicaramo. Se declaran dentro del estilo inicial (y no en el `load`)
@@ -605,16 +618,68 @@ export default function MapGL({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
+      // Filete oscuro debajo del rastro. Los colores de la flota son azules y
+      // verdes de la marca, y sobre la imagen satelital (verde y café) una
+      // línea de 3 px sin borde se pierde; con el filete se lee a cualquier
+      // zoom y dos máquinas de tonos parecidos quedan separadas por un borde.
+      map.addLayer({
+        id: CAPA_RASTROS_BORDE,
+        type: "line",
+        source: SRC_TRAILS,
+        filter: ["!=", ["get", "sinSenal"], true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#0b1020",
+          "line-width": 6,
+          "line-opacity": 0.55,
+        },
+      });
       map.addLayer({
         id: SRC_TRAILS,
         type: "line",
         source: SRC_TRAILS,
+        filter: ["!=", ["get", "sinSenal"], true],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": ["get", "color"],
           "line-width": 3,
-          "line-opacity": 0.65,
+          "line-opacity": 0.8,
         },
+      });
+      // Silencio largo del nodo: la recta une dos fixes separados por más de
+      // 20 min sin reporte. Va punteada y sin filete para que se lea como lo
+      // que es —"de aquí saltó a allá"— y no como un camino recorrido.
+      map.addLayer({
+        id: CAPA_RASTROS_SIN_SENAL,
+        type: "line",
+        source: SRC_TRAILS,
+        filter: ["==", ["get", "sinSenal"], true],
+        layout: { "line-cap": "butt", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 2,
+          "line-opacity": 0.8,
+          "line-dasharray": [2, 2],
+        },
+      });
+
+      // Sentido de marcha. Sin él, un rastro que va y vuelve por la misma vía
+      // no dice de dónde salió la máquina ni a dónde llegó.
+      map.addImage(IMG_FLECHA, imagenFlecha(), { pixelRatio: 2 });
+      map.addLayer({
+        id: CAPA_RASTROS_FLECHAS,
+        type: "symbol",
+        source: SRC_TRAILS,
+        filter: ["!=", ["get", "sinSenal"], true],
+        layout: {
+          "symbol-placement": "line",
+          "symbol-spacing": 70,
+          "icon-image": IMG_FLECHA,
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: { "icon-opacity": 0 },
       });
 
       map.addSource(SRC_ENDS, {
@@ -689,17 +754,64 @@ export default function MapGL({
         },
       });
 
-      // Clic en un rastro = seleccionar esa máquina.
-      map.on("click", SRC_TRAILS, (e: MapLayerMouseEvent) => {
-        const id = e.features?.[0]?.properties?.nodeId;
-        if (typeof id === "string") cbRef.current.onSelect(id);
+      // Cambio de vehículo: el fix donde el rastro pasa de una máquina a otra.
+      // Es un punto grande del color de la máquina NUEVA con anillo blanco y
+      // el rótulo "T-01 > T-02": los colores de la flota se parecen tanto que
+      // el solo cambio de tono de la línea no alcanza para verlo.
+      map.addSource(SRC_TRANSICIONES, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
       });
-      map.on("mouseenter", SRC_TRAILS, () => {
-        map.getCanvas().style.cursor = "pointer";
+      // Debajo de los pines de hora registrada (el `beforeId`): son más chicos
+      // y, cuando caen en el mismo sitio, el grande los taparía.
+      map.addLayer(
+        {
+          id: CAPA_TRANSICIONES,
+          type: "circle",
+          source: SRC_TRANSICIONES,
+          paint: {
+            "circle-radius": 8,
+            "circle-color": ["get", "color"],
+            "circle-stroke-width": 3,
+            "circle-stroke-color": "#ffffff",
+          },
+        },
+        SRC_CAMBIOS
+      );
+      map.addLayer({
+        id: CAPA_TRANSICIONES_ETIQ,
+        type: "symbol",
+        source: SRC_TRANSICIONES,
+        layout: {
+          "text-field": ["get", "texto"],
+          "text-font": FUENTE,
+          "text-size": 12,
+          // Debajo del punto: arriba va la hora del pin registrado, que suele
+          // caer muy cerca.
+          "text-offset": [0, 1.3],
+          "text-anchor": "top",
+          "text-allow-overlap": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#1a1a33",
+          "text-halo-width": 2,
+        },
       });
-      map.on("mouseleave", SRC_TRAILS, () => {
-        map.getCanvas().style.cursor = "";
-      });
+
+      // Clic en un rastro (o en su cambio de vehículo) = seleccionar la máquina.
+      for (const capa of [...CAPAS_LINEA_RASTRO, CAPA_TRANSICIONES]) {
+        map.on("click", capa, (e: MapLayerMouseEvent) => {
+          const id = e.features?.[0]?.properties?.nodeId;
+          if (typeof id === "string") cbRef.current.onSelect(id);
+        });
+        map.on("mouseenter", capa, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", capa, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
 
       readyRef.current = true;
       // Pinta lo que llegó antes de que el estilo estuviera listo.
@@ -826,27 +938,46 @@ Puesto fijo (sin nodo)`;
 
       src.setData({
         type: "FeatureCollection",
-        // Una feature por pieza cuando el nodo cambió de máquina, y una sola
-        // para el día cuando no. Todas llevan el mismo `nodeId`, así que el
-        // clic y el resalte del seleccionado siguen funcionando igual.
+        // Una feature por segmento (máquina + con/sin señal). Todas llevan el
+        // mismo `nodeId`, así que el clic y el resalte del seleccionado operan
+        // sobre el nodo entero.
         features: trails.flatMap((t) => {
-          const piezas =
-            t.piezas && t.piezas.length > 1
-              ? t.piezas
-              : [{ color: t.color, latlngs: t.latlngs, ruta: t.ruta ?? null }];
+          const segs: SegmentoRastro[] = t.segmentos?.length
+            ? t.segmentos
+            : [{ color: t.color, sinSenal: false, latlngs: t.ruta ?? t.latlngs }];
 
-          return piezas
-            .filter((p) => (p.ruta ?? p.latlngs).length >= 2)
+          return segs
+            .filter((p) => p.latlngs.length >= 2)
             .map((p) => ({
               type: "Feature" as const,
-              properties: { nodeId: t.nodeId, color: p.color },
+              properties: {
+                nodeId: t.nodeId,
+                color: p.color,
+                sinSenal: p.sinSenal,
+              },
               geometry: {
                 type: "LineString" as const,
                 // GeoJSON va en [lon, lat]; los datos vienen en [lat, lon].
-                coordinates: (p.ruta ?? p.latlngs).map(([la, lo]) => [lo, la]),
+                coordinates: p.latlngs.map(([la, lo]) => [lo, la]),
               },
             }));
         }),
+      });
+
+      const trans = map.getSource(SRC_TRANSICIONES) as GeoJSONSource | undefined;
+      trans?.setData({
+        type: "FeatureCollection",
+        features: trails.flatMap((t) =>
+          (t.transiciones ?? []).map((c) => ({
+            type: "Feature" as const,
+            properties: {
+              nodeId: t.nodeId,
+              color: c.color,
+              texto: `${c.de} > ${c.a}  ${fmtTime(c.t)}`,
+            },
+            geometry: { type: "Point" as const, coordinates: [c.lon, c.lat] },
+          }))
+        ),
       });
 
       // Los extremos sólo aportan en histórico: "¿a qué hora arrancó y paró?".
@@ -859,9 +990,14 @@ Puesto fijo (sin nodo)`;
                 if (t.latlngs.length < 2) return [];
                 const a = t.latlngs[0];
                 const b = t.latlngs[t.latlngs.length - 1];
+                // Cada extremo con el color de la máquina que lo hizo: el
+                // arranque es de la primera, el cierre de la última.
+                const segs = t.segmentos ?? [];
+                const cIni = segs[0]?.color ?? t.color;
+                const cFin = segs[segs.length - 1]?.color ?? t.color;
                 return [
-                  punto(a, t, "start", fmtTime(t.desde)),
-                  punto(b, t, "end", fmtTime(t.hasta)),
+                  punto(a, t, cIni, "start", fmtTime(t.desde)),
+                  punto(b, t, cFin, "end", fmtTime(t.hasta)),
                 ];
               }),
       });
@@ -895,18 +1031,57 @@ Puesto fijo (sin nodo)`;
     const aplicar = () => {
       if (!map.getLayer(SRC_TRAILS)) return;
       const esSel = ["==", ["get", "nodeId"], selectedId ?? ""] as unknown;
-      map.setPaintProperty(SRC_TRAILS, "line-width", [
-        "case",
-        esSel,
-        4.5,
-        3,
-      ] as never);
-      map.setPaintProperty(SRC_TRAILS, "line-opacity", [
-        "case",
-        esSel,
-        0.95,
-        selectedId ? 0.25 : 0.65,
-      ] as never);
+      const caso = (sel: number, resto: number) =>
+        ["case", esSel, sel, resto] as never;
+      // Sólo de cerca: `step` sobre el zoom tiene que ir en el nivel más
+      // externo de la expresión, por eso no se arma con `caso`.
+      const deCerca = (zoom: number, valor: number) =>
+        ["step", ["zoom"], 0, zoom, valor] as never;
+      // Con una máquina elegida, las demás casi desaparecen: sobre el mismo
+      // lote se cruzan varios rastros, y a 25 % todavía se confundían con el
+      // que se está mirando.
+      const resto = selectedId ? 0.12 : 0.8;
+
+      // El seleccionado va encima de todos. Sin esto queda debajo del rastro
+      // de cualquier máquina cargada después que haya pasado por ahí.
+      for (const capa of [CAPA_RASTROS_BORDE, ...CAPAS_LINEA_RASTRO]) {
+        map.setLayoutProperty(capa, "line-sort-key", caso(1, 0));
+      }
+      map.setLayoutProperty(CAPA_RASTROS_FLECHAS, "symbol-sort-key", caso(1, 0));
+
+      map.setPaintProperty(CAPA_RASTROS_BORDE, "line-width", caso(8.5, 6));
+      map.setPaintProperty(
+        CAPA_RASTROS_BORDE,
+        "line-opacity",
+        caso(0.7, selectedId ? 0.08 : 0.55)
+      );
+      map.setPaintProperty(SRC_TRAILS, "line-width", caso(5, 3));
+      map.setPaintProperty(SRC_TRAILS, "line-opacity", caso(1, resto));
+      map.setPaintProperty(CAPA_RASTROS_SIN_SENAL, "line-width", caso(3, 2));
+      map.setPaintProperty(CAPA_RASTROS_SIN_SENAL, "line-opacity", caso(0.95, resto));
+
+      // Flechas: siempre sobre la seleccionada; sin selección, sólo de cerca,
+      // donde ya se distingue un rastro de otro. De lejos serían ruido.
+      map.setPaintProperty(
+        CAPA_RASTROS_FLECHAS,
+        "icon-opacity",
+        selectedId ? caso(1, 0) : deCerca(15, 0.9)
+      );
+
+      const transResto = selectedId ? 0.15 : 1;
+      map.setPaintProperty(CAPA_TRANSICIONES, "circle-opacity", caso(1, transResto));
+      map.setPaintProperty(
+        CAPA_TRANSICIONES,
+        "circle-stroke-opacity",
+        caso(1, transResto)
+      );
+      // Rótulo "T-01 > T-02": el de la seleccionada siempre; sin selección,
+      // desde z14, para no llenar de texto la vista de todo el predio.
+      map.setPaintProperty(
+        CAPA_TRANSICIONES_ETIQ,
+        "text-opacity",
+        selectedId ? caso(1, 0) : deCerca(14, 1)
+      );
     };
     whenReady(aplicar);
   }, [selectedId, whenReady]);
@@ -1152,16 +1327,50 @@ ${
   return <div ref={divRef} className="absolute inset-0" />;
 }
 
+/**
+ * Chevron blanco con filete oscuro, apuntando a la derecha: con
+ * `symbol-placement: line` MapLibre alinea el eje x del ícono con el sentido de
+ * la línea, y la línea va del fix más antiguo al más reciente.
+ *
+ * Se dibuja en un canvas y no se sirve como PNG para no sumar otro archivo que
+ * pedir por red, igual que el resto del estilo.
+ */
+function imagenFlecha(): ImageData {
+  const lado = 28; // px de dispositivo; pixelRatio 2 → 14 px en pantalla
+  const cv = document.createElement("canvas");
+  cv.width = lado;
+  cv.height = lado;
+  const ctx = cv.getContext("2d")!;
+  const trazo = () => {
+    ctx.beginPath();
+    ctx.moveTo(9, 7);
+    ctx.lineTo(19, 14);
+    ctx.lineTo(9, 21);
+  };
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  trazo();
+  ctx.strokeStyle = "rgba(11,16,32,0.85)";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  trazo();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  return ctx.getImageData(0, 0, lado, lado);
+}
+
 /** Punto de inicio o fin de un rastro, como feature de GeoJSON. */
 function punto(
   [lat, lon]: [number, number],
   t: Trail,
+  color: string,
   kind: "start" | "end",
   hora: string
 ) {
   return {
     type: "Feature" as const,
-    properties: { nodeId: t.nodeId, color: t.color, kind, hora },
+    properties: { nodeId: t.nodeId, color, kind, hora },
     geometry: { type: "Point" as const, coordinates: [lon, lat] },
   };
 }

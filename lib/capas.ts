@@ -10,6 +10,15 @@
 
 /** Rastros de todas las máquinas (líneas del recorrido). */
 export const CAPA_RASTROS = "trails";
+/** Filete oscuro bajo los rastros, para que se lean sobre el satélite. */
+export const CAPA_RASTROS_BORDE = "trails-borde";
+/** Tramos sin señal (hueco largo entre fixes), punteados. */
+export const CAPA_RASTROS_SIN_SENAL = "trails-sin-senal";
+/** Flechas del sentido de marcha sobre el rastro. */
+export const CAPA_RASTROS_FLECHAS = "trails-flechas";
+/** Puntos donde el rastro pasa de una máquina a otra, y su rótulo. */
+export const CAPA_TRANSICIONES = "trails-transiciones";
+export const CAPA_TRANSICIONES_ETIQ = "trails-transiciones-etiq";
 /** Puntos de inicio y fin de cada rastro. */
 export const CAPA_EXTREMOS = "trail-ends";
 /** Pines de cambio de máquina/operador, y su rótulo de hora. */

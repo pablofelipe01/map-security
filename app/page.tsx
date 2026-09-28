@@ -28,7 +28,12 @@ import type { SitioRed } from "@/lib/red";
 import { estaDadoDeBaja } from "@/lib/bajas";
 import { computeStats, enrichTrack, fmtTime } from "@/lib/geo";
 import { unirTramos } from "@/lib/rutas";
-import { partirPorMaquina, type PiezaRastro } from "@/lib/atribucion";
+import {
+  partirPorMaquina,
+  segmentosDelRastro,
+  transicionesDelRastro,
+  type PiezaRastro,
+} from "@/lib/atribucion";
 import { useRutasPorVia } from "@/lib/useRutas";
 import { minuteOfDay, positionAt, ventanaConDatos } from "@/lib/replay";
 import { dayRange, todayLocal } from "@/lib/ranges";
@@ -318,19 +323,27 @@ export default function Page() {
     return out;
   }, [tracks, flota, rutas]);
 
-  const trails = useMemo<Trail[]>(
-    () =>
-      trailsCrudos.map((t) => {
-        const tramos = rutas?.get(t.nodeId);
-        const p = piezas.get(t.nodeId);
-        return {
-          ...t,
-          ...(tramos ? { ruta: unirTramos(tramos) } : {}),
-          ...(p && p.length > 1 ? { piezas: p } : {}),
-        };
-      }),
-    [trailsCrudos, rutas, piezas]
-  );
+  const trails = useMemo<Trail[]>(() => {
+    const puntosDe = new Map(tracks.map((t) => [t.node.node_id, t.points]));
+    return trailsCrudos.map((t) => {
+      const tramos = rutas?.get(t.nodeId);
+      const p = piezas.get(t.nodeId) ?? [];
+      const points = puntosDe.get(t.nodeId) ?? [];
+      return {
+        ...t,
+        ...(tramos ? { ruta: unirTramos(tramos) } : {}),
+        // Con una sola pieza igual se segmenta: los silencios largos del nodo
+        // van punteados aunque no haya cambio de máquina.
+        segmentos: segmentosDelRastro(
+          points,
+          p.length > 1 ? p : [],
+          tramos,
+          t.color
+        ),
+        transiciones: transicionesDelRastro(points, p),
+      };
+    });
+  }, [trailsCrudos, tracks, rutas, piezas]);
 
   const rows = useMemo<HistoryRow[]>(
     () =>

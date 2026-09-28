@@ -684,6 +684,7 @@ function HistoryMachinePanel({
           </span>
         </div>
       )}
+      {!puesto && !vacio && <LeyendaRastro />}
       <p className="mt-1 text-[10px] leading-tight text-ink-3">
         &quot;Jornada&quot; es del primer al último fix GPS del día, no el turno
         del operador. La máquina y el operador son los vigentes ese día, según el
@@ -851,11 +852,21 @@ function RepartoPorMaquina({
               )}
             </span>
           </span>
-          <span className="text-right font-mono font-semibold">
-            {fmtDist(p.metros)}
+          <span className="text-right">
+            <span className="font-mono font-semibold">{fmtDist(p.metros)}</span>
+            <span className="block font-mono text-[10px] text-ink-3">
+              {fmtTime(p.desde)}–{fmtTime(p.hasta)}
+            </span>
           </span>
         </div>
       ))}
+      <p className="mt-1 text-[10px] leading-tight text-ink-3">
+        En el mapa, el punto grande con anillo blanco y el rótulo{" "}
+        <span className="font-mono">
+          {piezas[0].codigo} &gt; {piezas[1].codigo}
+        </span>{" "}
+        marca el fix donde el rastro pasa a la otra máquina.
+      </p>
       {/* Los pedazos no suman exactamente el total del día: el tramo que cruza
           el cambio se le cuenta a la máquina nueva, y entre dos fixes no hay
           forma de repartirlo mejor. Se dice, en vez de maquillar la cifra. */}
@@ -864,6 +875,46 @@ function RepartoPorMaquina({
         {fmtDist(total)} del día: el tramo entre el último fix de una máquina y
         el primero de la otra se le atribuye a la nueva.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Cómo leer el rastro del mapa. Va en la ficha y no flotando sobre el mapa
+ * porque sólo hace falta cuando se está mirando el recorrido de una máquina.
+ */
+function LeyendaRastro() {
+  return (
+    <div className="mt-2.5 rounded-[10px] bg-[#ecf1f4] px-2.5 py-2 text-[10px] leading-tight text-ink-2">
+      <div className="mb-1 font-bold uppercase tracking-[1.2px] text-ink-3">
+        Cómo leer el rastro
+      </div>
+      <div className="flex items-center gap-2 py-0.5">
+        <svg width="28" height="8" aria-hidden="true">
+          <line x1="2" y1="4" x2="26" y2="4" stroke="#0b1020" strokeWidth="7" strokeLinecap="round" opacity="0.6" />
+          <line x1="2" y1="4" x2="26" y2="4" stroke="#0154ac" strokeWidth="4" strokeLinecap="round" />
+          <path d="M12 1.5 L16 4 L12 6.5" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Recorrido, con flechas en el sentido de marcha
+      </div>
+      <div className="flex items-center gap-2 py-0.5">
+        <svg width="28" height="8" aria-hidden="true">
+          <line x1="2" y1="4" x2="26" y2="4" stroke="#0154ac" strokeWidth="2.5" strokeDasharray="4 4" />
+        </svg>
+        Sin señal más de 20 min: salto entre dos fixes, no un camino
+      </div>
+      <div className="flex items-center gap-2 py-0.5">
+        <svg width="28" height="14" aria-hidden="true">
+          <circle cx="14" cy="7" r="5" fill="#00a3ff" stroke="#fff" strokeWidth="2" />
+        </svg>
+        Cambio de vehículo (último fix con la máquina anterior)
+      </div>
+      <div className="flex items-center gap-2 py-0.5">
+        <svg width="28" height="14" aria-hidden="true">
+          <circle cx="14" cy="7" r="4.5" fill="#fff" stroke="#00b602" strokeWidth="2.2" />
+        </svg>
+        Hora en que se registró el cambio
+      </div>
     </div>
   );
 }
