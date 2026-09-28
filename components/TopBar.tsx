@@ -25,6 +25,8 @@ interface Props {
   onSelect: (nodeId: string) => void;
   /** Último `sample_local` visto: latido del poller. */
   latidoPoller: string | null;
+  /** Abre el índice de universos de máquinas. */
+  onUniversos: () => void;
 }
 
 /** Si el poller lleva más de esto sin correr, el que falla es el poller. */
@@ -39,6 +41,7 @@ export default function TopBar({
   selectedId,
   onSelect,
   latidoPoller,
+  onUniversos,
 }: Props) {
   const items = fleet ? ordenarFlota(fleet) : [];
   const hoy = todayLocal();
@@ -103,6 +106,19 @@ export default function TopBar({
       >
         DESPACHO
       </Link>
+
+      {/*
+        Índice de universos. Es un botón y no un chip más de la flota porque
+        lista TODOS los nodos, también los que hoy no tienen marcador —sin
+        señal o sin recorrido ese día— y que por eso no hay dónde tocar.
+      */}
+      <button
+        onClick={onUniversos}
+        title="Abrir la ficha de cualquier máquina"
+        className="grid min-h-11 shrink-0 place-items-center rounded-full border border-border bg-surface px-4 text-xs font-bold tracking-[1.5px] text-ink-2 transition hover:border-accent-2 hover:text-accent md:min-h-0 md:py-[10px]"
+      >
+        UNIVERSOS
+      </button>
 
       {/* Día (sólo histórico) */}
       {mode === "history" && (

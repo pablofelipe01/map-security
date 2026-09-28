@@ -10,6 +10,7 @@ import BuscadorCoords from "@/components/BuscadorCoords";
 import VideoModal, { type VideoJob } from "@/components/VideoModal";
 import AsignacionModal from "@/components/AsignacionModal";
 import FlotaAdmin from "@/components/FlotaAdmin";
+import UniversosModal from "@/components/UniversosModal";
 import type {
   Trail,
   ReplayPos,
@@ -133,6 +134,7 @@ export default function Page() {
   const [registroVersion, setRegistroVersion] = useState(0);
   const [asignacionNodeId, setAsignacionNodeId] = useState<string | null>(null);
   const [adminAbierto, setAdminAbierto] = useState(false);
+  const [universosAbierto, setUniversosAbierto] = useState(false);
 
   const [minute, setMinute] = useState(6 * 60);
   const [playing, setPlaying] = useState(false);
@@ -562,6 +564,7 @@ export default function Page() {
         selectedId={selectedId}
         onSelect={selectMachine}
         latidoPoller={latidoPoller}
+        onUniversos={() => setUniversosAbierto(true)}
       />
 
       <div className="relative flex-1">
@@ -641,6 +644,20 @@ export default function Page() {
             instante={instante}
             onClose={() => setAsignacionNodeId(null)}
             onChanged={recargarFlota}
+          />
+        )}
+
+        {universosAbierto && (
+          <UniversosModal
+            mode={mode}
+            date={date}
+            nodes={nodes}
+            fleet={fleet}
+            onOpen={(id) => {
+              setUniversosAbierto(false);
+              openMachine(id);
+            }}
+            onClose={() => setUniversosAbierto(false)}
           />
         )}
 

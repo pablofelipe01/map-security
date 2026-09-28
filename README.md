@@ -576,6 +576,10 @@ código, a propósito.
   jornadas con primer y último fix. Con fecha, la ventana cierra ese día y no
   hoy: se omite el estado en vivo —que es un dato del ahora— y se resalta el día
   por el que se entró.
+- **Universos de máquinas** (botón `UNIVERSOS` del topbar): índice de todos los
+  nodos agrupados por tipo, con buscador, para entrar al universo de cualquiera
+  —también de las que no tienen marcador ese día—. En histórico abre anclado a
+  la fecha mostrada.
 - **Video del recorrido**: cada nodo se puede exportar como un `.mp4` con su
   jornada animada. Ver abajo.
 - **Frescura del dato** siempre visible, con detección de poller caído.
