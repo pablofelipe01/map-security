@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PlanillaVagones from "@/components/PlanillaVagones";
-import { fetchAcopios, AcopiosNoInstalados, type Acopio } from "@/lib/acopios";
+import {
+  fetchAcopios,
+  registrarAcopio,
+  AcopiosNoInstalados,
+  type Acopio,
+} from "@/lib/acopios";
 import {
   crearOperador,
   fetchFlota,
@@ -167,6 +172,18 @@ export default function DespachoPage() {
     []
   );
 
+  /**
+   * Un acopio que el plano no trae, dado de alta desde la planilla (queda por
+   * ubicar: ver supabase/acopios-registro.sql). Se suma a la lista en memoria
+   * por lo mismo que el conductor: la otra casilla y el renglón que se está
+   * llenando tienen que encontrarlo ya.
+   */
+  const onCrearAcopio = useCallback(async (bloque: string, num: string) => {
+    const a = await registrarAcopio(bloque, num);
+    setAcopios((l) => (l.some((x) => x.id === a.id) ? l : [...l, a]));
+    return a;
+  }, []);
+
   /* --------------------------- pantalla --------------------------- */
 
   const faltanAcopios = !cargando && !error && acopios.length === 0;
@@ -276,6 +293,7 @@ export default function DespachoPage() {
             onCorregir={onCorregir}
             onSalida={onSalida}
             onCrearOperador={onCrearOperador}
+            onCrearAcopio={onCrearAcopio}
           />
         )}
       </div>

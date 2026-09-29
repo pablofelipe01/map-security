@@ -751,6 +751,16 @@ dónde dejar un vagón vacío.
 Esquema en `supabase/vagones.sql` (depende de `acopios.sql` y `flota.sql`),
 datos en `lib/vagones.ts`, pantalla en `components/PlanillaVagones.tsx`.
 
+**Bloque y acopio se escriben o se eligen de una lista** (`components/CasillasAcopio.tsx`):
+la casilla de bloque despliega los bloques con cuántos acopios tienen, y la de
+acopio sólo los de ese bloque. Si el bloque o el acopio no están en el plano, la
+misma lista ofrece **registrarlo**: queda en `acopios` "por ubicar" (sin
+coordenada), sirve para el renglón pero no aparece en el mapa ni se puede
+planear hasta que se le ponga lat/lon. Para habilitarlo hay que correr
+`supabase/acopios-registro.sql` en el SQL Editor; el encabezado de ese archivo
+trae la consulta de pendientes y cómo ubicarlos. La reimportación del plano no
+da de baja los registrados desde la app.
+
 **Las ocho columnas del papel están una a una**, en el mismo orden y con el
 mismo nombre. No es nostalgia: el que la llena tiene el modelo mental de la hoja
 metido en la mano, y una pantalla que reordene las casillas le cobra atención

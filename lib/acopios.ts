@@ -34,9 +34,20 @@ export interface Acopio {
   num: string | null;
   /** Lo que lee una persona: "B.9-P.2 (R.) · 37". Único. */
   codigo: string;
-  lat: number;
-  lon: number;
+  /**
+   * null en los dos = "por ubicar": registrado desde la planilla sin
+   * coordenada (ver supabase/acopios-registro.sql). Sirve para anotar
+   * renglones, pero no se dibuja ni se planea.
+   */
+  lat: number | null;
+  lon: number | null;
 }
+
+/** Un acopio con coordenada: el único que se puede dibujar o planear. */
+export type AcopioUbicado = Acopio & { lat: number; lon: number };
+
+export const estaUbicado = (a: Acopio): a is AcopioUbicado =>
+  a.lat !== null && a.lon !== null;
 
 /* ============================== errores ============================== */
 
@@ -81,6 +92,31 @@ export async function fetchAcopios(): Promise<Acopio[]> {
   }
 
   return (data ?? []) as Acopio[];
+}
+
+/**
+ * Da de alta un acopio que no está en el plano, "por ubicar".
+ *
+ * Lo hace la función `registrar_acopio` y no un insert: la tabla no admite
+ * escritura desde la app (ver supabase/acopios.sql). La función normaliza lo
+ * escrito y, si el acopio ya existía, devuelve ése en vez de duplicarlo.
+ */
+export async function registrarAcopio(bloque: string, num: string): Promise<Acopio> {
+  const { data, error } = await supabase.rpc("registrar_acopio", {
+    p_bloque: bloque,
+    p_num: num,
+  });
+  if (error) {
+    if (FALTA.has(error.code ?? "")) {
+      throw new Error(
+        "Falta habilitar el registro de acopios: corre supabase/acopios-registro.sql " +
+          "en el SQL Editor de Supabase."
+      );
+    }
+    throw new Error(error.message);
+  }
+  const { id, clave, bloque: b, lote, num: n, codigo, lat, lon } = data as Acopio;
+  return { id, clave, bloque: b, lote, num: n, codigo, lat, lon };
 }
 
 /* ============================== agrupar ============================== */
@@ -177,7 +213,9 @@ export function lotesCercanos(
   return [...mapa.values()]
     .map((grupo) => ({
       grupo,
-      metros: Math.min(...grupo.acopios.map((a) => haversineM(desde, a))),
+      metros: Math.min(
+        ...grupo.acopios.filter(estaUbicado).map((a) => haversineM(desde, a))
+      ),
     }))
     .sort((x, y) => x.metros - y.metros)
     .slice(0, cuantos);
@@ -232,7 +270,8 @@ export function acopioMasCercano(
   let mejorD = Infinity;
 
   const p = { lat, lon };
-  for (const a of acopios) {
+  // Los "por ubicar" no están en ninguna parte del mapa: no se pueden señalar.
+  for (const a of acopios.filter(estaUbicado)) {
     const d = haversineM(p, a);
     if (d < mejorD) {
       mejorD = d;

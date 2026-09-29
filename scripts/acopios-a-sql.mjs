@@ -193,6 +193,9 @@ on conflict (clave) do update
 update public.acopios a
    set activo = false
  where a.activo
+   -- Los que se registraron desde la planilla no vienen en el plano: no se
+   -- dan de baja por no estar en él (ver supabase/acopios-registro.sql).
+   and a.origen <> 'Registrado en la app'
    and not exists (select 1 from _acopios_import i where i.clave = a.clave);
 
 drop table _acopios_import;

@@ -6,7 +6,7 @@ import Link from "next/link";
 import SelectorAcopios from "@/components/SelectorAcopios";
 import MaquinaNodo from "@/components/MaquinaNodo";
 import type { MaquinaMapa, ParadaMapa, RutaMapa } from "@/components/MapaPlan";
-import { fetchAcopios, acopioMasCercano, type Acopio } from "@/lib/acopios";
+import { fetchAcopios, acopioMasCercano, estaUbicado, type Acopio } from "@/lib/acopios";
 import {
   fetchPlan,
   grafoVias,
@@ -159,7 +159,9 @@ export default function DespachoPage() {
         fetchNodes(),
       ]);
       setFlota(f);
-      setAcopios(a);
+      // Los "por ubicar" (registrados desde la planilla sin coordenada) no se
+      // pueden planear: no hay a dónde mandar la máquina.
+      setAcopios(a.filter(estaUbicado));
       setFleet(await fetchFleet(nodes));
       await cargarPlan();
     } catch (e) {

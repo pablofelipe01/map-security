@@ -302,12 +302,12 @@ export function resolverAcopio(
  * El prefijo "B." es del rótulo del plano y no distingue nada: no hay dos
  * bloques que se diferencien sólo en él.
  */
-function normBloque(s: string): string {
+export function normBloque(s: string): string {
   return s.trim().toUpperCase().replace(/^B\.?\s*/, "");
 }
 
 /** "8a", " 8A " → "8A". Mayúsculas porque "8a" y "8A" son el mismo punto. */
-function normNum(s: string): string {
+export function normNum(s: string): string {
   return s.trim().toUpperCase();
 }
 

@@ -62,6 +62,8 @@ interface Props {
   onSalida: (id: string) => Promise<void>;
   /** Da de alta un conductor que no estaba en el registro de flota. */
   onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
+  /** Da de alta un acopio que no está en el plano (queda por ubicar). */
+  onCrearAcopio: (bloque: string, num: string) => Promise<Acopio>;
 }
 
 export default function PlanillaVagones({
@@ -74,6 +76,7 @@ export default function PlanillaVagones({
   onCorregir,
   onSalida,
   onCrearOperador,
+  onCrearAcopio,
 }: Props) {
   const [editando, setEditando] = useState<Viaje | null>(null);
   const resumen = useMemo(() => resumirPlanilla(viajes), [viajes]);
@@ -134,6 +137,7 @@ export default function PlanillaVagones({
             ocupado={ocupado}
             onRegistrar={onRegistrar}
             onCrearOperador={onCrearOperador}
+            onCrearAcopio={onCrearAcopio}
           />
         </div>
 
@@ -203,6 +207,7 @@ export default function PlanillaVagones({
           acopios={acopios}
           operadores={operadores}
           onCrearOperador={onCrearOperador}
+          onCrearAcopio={onCrearAcopio}
           onClose={() => setEditando(null)}
           onGuardar={async (cambios) => {
             await onCorregir(editando.id, cambios);
@@ -621,6 +626,7 @@ function FilaNueva({
   ocupado,
   onRegistrar,
   onCrearOperador,
+  onCrearAcopio,
 }: {
   jornada: string;
   acopios: Acopio[];
@@ -628,6 +634,8 @@ function FilaNueva({
   ocupado?: boolean;
   onRegistrar: (v: ViajeNuevo) => Promise<void>;
   onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
+  /** Da de alta un acopio que no está en el plano (queda por ubicar). */
+  onCrearAcopio: (bloque: string, num: string) => Promise<Acopio>;
 }) {
   const [b, setB] = useState<Borrador>(BORRADOR_VACIO);
   const [guardando, setGuardando] = useState(false);
@@ -717,6 +725,7 @@ function FilaNueva({
           bloque={b.origenB}
           num={b.origenN}
           acopios={acopios}
+          onCrearAcopio={onCrearAcopio}
           disabled={guardando}
           onChange={(bl, n) => puso({ origenB: bl, origenN: n })}
           onResuelto={(a) => puso({ origen: a })}
@@ -728,6 +737,7 @@ function FilaNueva({
           bloque={b.destinoB}
           num={b.destinoN}
           acopios={acopios}
+          onCrearAcopio={onCrearAcopio}
           opcional
           disabled={guardando}
           onChange={(bl, n) => puso({ destinoB: bl, destinoN: n })}
@@ -1195,6 +1205,7 @@ function DialogoViaje({
   acopios,
   operadores,
   onCrearOperador,
+  onCrearAcopio,
   onClose,
   onGuardar,
 }: {
@@ -1203,6 +1214,8 @@ function DialogoViaje({
   acopios: Acopio[];
   operadores: OperadorRow[];
   onCrearOperador: (nombre: string, documento: string) => Promise<OperadorRow>;
+  /** Da de alta un acopio que no está en el plano (queda por ubicar). */
+  onCrearAcopio: (bloque: string, num: string) => Promise<Acopio>;
   onClose: () => void;
   onGuardar: (cambios: ViajeCambios) => Promise<void>;
 }) {
@@ -1342,6 +1355,7 @@ function DialogoViaje({
           bloque={origenB}
           num={origenN}
           acopios={acopios}
+          onCrearAcopio={onCrearAcopio}
           disabled={guardando}
           onChange={(b, n) => {
             setOrigenB(b);
@@ -1357,6 +1371,7 @@ function DialogoViaje({
           bloque={destinoB}
           num={destinoN}
           acopios={acopios}
+          onCrearAcopio={onCrearAcopio}
           opcional
           disabled={guardando}
           onChange={(b, n) => {

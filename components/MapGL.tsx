@@ -755,6 +755,19 @@ export default function MapGL({
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
 
+    // Sin un oyente de "error", MapLibre manda cada falla a `console.error`, y
+    // en desarrollo Next la convierte en el aviso rojo de pantalla. La más común
+    // es una tesela satelital que no llegó (señal intermitente en campo, o Esri
+    // cortando la conexión): no rompe nada —MapLibre la reintenta al volver a
+    // pasar por ahí y mientras tanto estira la del zoom anterior—, así que se
+    // calla. Cualquier otra falla sigue saliendo, como advertencia.
+    map.on("error", (ev) => {
+      const e = ev as { error?: { url?: string; message?: string }; sourceId?: string };
+      const url = e.error?.url ?? e.error?.message ?? "";
+      if (e.sourceId === "esri" || url.includes("arcgisonline.com")) return;
+      console.warn("[mapa]", e.error ?? e);
+    });
+
     map.on("load", () => {
       map.addSource(SRC_TRAILS, {
         type: "geojson",
