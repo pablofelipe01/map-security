@@ -28,6 +28,7 @@ import {
   fmtDistKm,
   metaDe,
   esOtraRed,
+  estaRetirada,
   nombreRed,
   COLOR_OTRA_RED,
   type SitioRed,
@@ -1044,7 +1045,14 @@ export default function MapGL({
         // El ícono entero cambia de color cuando el sitio no es de esta malla:
         // el anillo dice cómo está, pero a QUÉ red pertenece es una propiedad
         // del sitio, no de su estado, y por eso se lee en el propio aparato.
-        color: esOtraRed(s) ? COLOR_OTRA_RED : COLOR_RED,
+        // Un sitio retirado se pinta del mismo gris de su estado, no del color
+        // de la red: el aparato ya no está, y dejarlo con el pastel de la malla
+        // lo seguiría contando como parte de ella de un vistazo.
+        color: estaRetirada(s)
+          ? metaDe(s.estado).color
+          : esOtraRed(s)
+            ? COLOR_OTRA_RED
+            : COLOR_RED,
         sitio: s.site_name,
         estado: s.estado,
       });
@@ -1621,27 +1629,34 @@ function attachClicks(
 function tituloSitio(s: SitioRed): string {
   const meta = metaDe(s.estado);
   const otra = esOtraRed(s);
+  // Un sitio retirado se calla todo lo que suene a medición, por el mismo
+  // motivo que uno de otra red: los números que quedan no describen este sitio.
+  // Aquí es más fuerte todavía —no hay aparato— así que también se calla el rol:
+  // "Repetidor" en un poste vacío es decir que la malla pasa por ahí.
+  const retirada = estaRetirada(s);
   return [
     `${s.site_name}${s.node_id ? ` · ${s.node_id}` : ""}`,
-    s.role === "gateway"
-      ? "Gateway (backhaul Starlink)"
-      : `Repetidor · ${fmtDistKm(s.dist_gateway_m)} del gateway`,
+    retirada
+      ? "Sitio retirado · aquí estuvo instalada la antena"
+      : s.role === "gateway"
+        ? "Gateway (backhaul Starlink)"
+        : `Repetidor · ${fmtDistKm(s.dist_gateway_m)} del gateway`,
     // La red va antes del estado porque explica el estado: si el sitio habla
     // otro protocolo, que esta malla no lo sondee no es una falla.
-    otra ? `Red: ${nombreRed(s)} (fuera de la malla LoRa)` : "",
+    otra && !retirada ? `Red: ${nombreRed(s)} (fuera de la malla LoRa)` : "",
     `Enlace: ${meta.label} — ${meta.ayuda}`,
     // Las mediciones se callan cuando el sitio es de otra red: un sondeo de esta
     // malla contra una antena que no la habla no mide el enlace del sitio, mide
     // la ausencia del sitio en la malla. Mostrarlo invitaría a ir a revisar una
     // antena que está funcionando.
-    !otra && s.min_sin_senal != null
+    !otra && !retirada && s.min_sin_senal != null
       ? `Última señal: hace ${s.min_sin_senal} min`
       : "",
-    !otra && s.rtt_ms != null
+    !otra && !retirada && s.rtt_ms != null
       ? `Respuesta: ${(s.rtt_ms / 1000).toFixed(1)} s`
       : "",
-    !otra && s.route_text ? `Ruta medida: ${s.route_text}` : "",
-    !otra && s.fallos_consecutivos > 0
+    !otra && !retirada && s.route_text ? `Ruta medida: ${s.route_text}` : "",
+    !otra && !retirada && s.fallos_consecutivos > 0
       ? `Sondeos fallidos seguidos: ${s.fallos_consecutivos}`
       : "",
     s.notes ? `⚠ ${s.notes}` : "",

@@ -593,6 +593,26 @@ input[type="range"].replay::-moz-range-thumb {
   border-color: var(--st-offline);
   border-style: dotted;
 }
+
+/* Retirada: la antena se desmontó de aquí. Es el único marcador que se atenúa
+   de verdad (0.4) y se dessatura: tiene que leerse como "esto ya no está" sin
+   desaparecer, porque el punto sigue contando dónde estuvo el repetidor.
+   Anillo continuo y no punteado —ni de rayas— para no confundirlo con
+   "sin datos" (puntos, instalada pero muda) ni con "inactiva" (rayas, caída y
+   hay que ir): un sitio retirado no es una incógnita ni una falla. */
+.ant.retirada svg {
+  opacity: 0.4;
+  filter: grayscale(1) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+.ant.retirada .ant-ring {
+  border-color: #5b6673;
+  border-width: 2px;
+  opacity: 0.55;
+}
+/* La opacidad va en el ícono y en el anillo, NO en `.ant`: `opacity` en el
+   contenedor compone todo el subárbol de una vez y la etiqueta no puede
+   recuperarse desde adentro. Y el nombre es justamente lo que hace útil al
+   punto, así que se queda opaco y legible sobre la imagen satelital. */
 .ant-label {
   position: absolute;
   top: 100%;

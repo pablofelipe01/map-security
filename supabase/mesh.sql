@@ -85,6 +85,30 @@ alter table public.mesh_sites drop constraint if exists mesh_sites_red_no_vacio;
 alter table public.mesh_sites add constraint mesh_sites_red_no_vacio
   check (length(btrim(red)) > 0);
 
+-- Sitio retirado: la antena se desmontó de aquí. El registro NO se borra —se
+-- apaga— porque la coordenada vieja sigue siendo un hecho del predio: dice
+-- dónde estuvo el repetidor, y por qué los sondeos de antes de la mudanza
+-- cubren esa zona y los de después no.
+--
+-- Es un hecho DECLARADO, como `red`: nadie lo mide. Por eso es una columna y no
+-- una regla en la app, y por eso `v_mesh_health` lo evalúa ANTES que cualquier
+-- umbral — un sitio desmontado no tiene estado de enlace que valga la pena
+-- calcular, y pintarlo 'inactiva' (rojo, "hay que ir al sitio") sería mandar a
+-- alguien a revisar un poste vacío.
+--
+-- Dos columnas y no una fecha sola: la bandera es lo que la vista lee, y la
+-- fecha puede faltar. Es el mismo criterio de `installed_on`, que está en null
+-- porque el acta no dice qué día se instaló cada antena; inventar una fecha
+-- para poder marcar el retiro sería peor que no tenerla.
+alter table public.mesh_sites add column if not exists retirado boolean not null default false;
+alter table public.mesh_sites add column if not exists retirado_el date;
+
+-- Una fecha de retiro en un sitio que no está retirado es una contradicción, no
+-- un dato: o sobra la fecha o falta la bandera.
+alter table public.mesh_sites drop constraint if exists mesh_sites_retiro_coherente;
+alter table public.mesh_sites add constraint mesh_sites_retiro_coherente
+  check (retirado or retirado_el is null);
+
 alter table public.mesh_sites drop constraint if exists mesh_sites_coord_source_valido;
 alter table public.mesh_sites add constraint mesh_sites_coord_source_valido
   check (coord_source is null
@@ -327,6 +351,8 @@ select
   s.lon,
   s.coord_source,
   s.dist_gateway_m,
+  s.retirado,
+  s.retirado_el,
   s.notes,
   h.last_heard,
   -- La última señal de vida venga de donde venga: del pipeline de posiciones
@@ -345,6 +371,11 @@ select
   t.route_text,
   coalesce(f.n, 0) as fallos_consecutivos,
   case
+    -- Retirada: la antena ya no está montada aquí. Va PRIMERO, antes incluso
+    -- que la coordenada, porque es lo único que explica todo lo demás: si al
+    -- sitio le quedaron sondeos viejos, medirlos ahora sólo produciría un rojo
+    -- que manda a alguien a revisar un poste vacío.
+    when s.retirado then 'retirada'
     -- Sin coordenada no hay nada que pintar, aunque el nodo responda.
     when s.lat is null or s.lon is null then 'sin_datos'
     -- Otra red: no se puede sondear desde aquí, así que ningún umbral de abajo
@@ -434,6 +465,7 @@ cross join (
    limit 1
 ) g
 where s.role <> 'gateway'
+  and not s.retirado
   and s.lat is not null
   and s.dist_gateway_m is not null;
 

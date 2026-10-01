@@ -56,6 +56,14 @@ export type EstadoEnlace =
   | "inactiva"
   | "sin_datos"
   /**
+   * La antena se desmontó de este sitio. El pin se queda —la coordenada sigue
+   * siendo un hecho del predio, y explica por dónde llegaba la malla antes—
+   * pero apagado: no hay aparato que sondear, así que no hay estado de enlace.
+   *
+   * Declarado, no medido: sale de `mesh_sites.retirado`.
+   */
+  | "retirada"
+  /**
    * Está encendida, pero en otra red: habla otro protocolo y el gateway de la
    * malla no la puede sondear. No es un estado medido sino declarado, y por eso
    * se pinta distinto en vez de mentir con el verde de "activa".
@@ -112,7 +120,15 @@ export function enlacesDeclarados(
   const gw = gatewayDe(sitios);
   if (!gw) return [];
   return sitios
-    .filter((s) => s.role !== "gateway" && s.lat != null && s.lon != null)
+    .filter(
+      (s) =>
+        s.role !== "gateway" &&
+        s.lat != null &&
+        s.lon != null &&
+        // Un sitio retirado no tiene enlace que declarar: la línea punteada
+        // dice "por aquí llega la malla", y por ahí ya no llega nada.
+        !estaRetirada(s)
+    )
     .map((s) => ({ desde: gw, hasta: s }));
 }
 
@@ -148,6 +164,18 @@ export const ENLACE_META: Record<
     color: "#7b8794",
     ayuda:
       "Aún no se ha sondeado, o no llegó la consulta de estado. Está instalada; si reporta, no se sabe.",
+  },
+  /**
+   * Gris más apagado que el de "sin datos", y a propósito: los dos son grises
+   * porque ninguno afirma una medición, pero no dicen lo mismo. "Sin datos" es
+   * una antena instalada de la que no se sabe —puede que haya que ir a verla—;
+   * "retirada" es un sitio del que ya no hay nada que saber.
+   */
+  retirada: {
+    label: "Retirada",
+    color: "#5b6673",
+    ayuda:
+      "La antena se desmontó de este sitio. El punto queda como registro de dónde estuvo; no hay nada que sondear.",
   },
 };
 
@@ -217,6 +245,17 @@ export function aplicarOtrasRedes(sitios: SitioRed[]): SitioRed[] {
 /** Si el sitio no pertenece a la malla LoRa que este mapa sondea. */
 export function esOtraRed(s: Pick<SitioRed, "red" | "estado">): boolean {
   return s.estado === "otra_red" || (s.red != null && s.red !== "mesh");
+}
+
+/**
+ * Si la antena ya no está montada en este sitio.
+ *
+ * Se pregunta por el estado y no por una columna propia porque el veredicto lo
+ * da `v_mesh_health`: ahí vive la regla, igual que la de los umbrales, y así
+ * cambiarla no exige desplegar la app.
+ */
+export function estaRetirada(s: Pick<SitioRed, "estado">): boolean {
+  return s.estado === "retirada";
 }
 
 /** Nombre legible de la red ajena, para la ficha del sitio. */
