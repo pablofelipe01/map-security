@@ -25,7 +25,9 @@
  *  3. el camino por vías da una vuelta desproporcionada frente a la recta —ahí
  *     el grafo está mal conectado o el tractor efectivamente cortó campo través.
  *
- * En esos casos se devuelve la recta, igual que antes. Nunca se mueve un fix de
+ * En esos casos se devuelve la recta, igual que antes, salvo en tramos largos
+ * (1 y 3) donde la vía alcanza a llevar la máquina cerca del otro fix: ahí sólo
+ * ese último trecho queda en recta (ver `rutearParcial`). Nunca se mueve un fix de
  * su lugar: la polilínea entra y sale del punto medido; lo único que se rellena
  * es el silencio entre dos mediciones.
  */
@@ -550,6 +552,124 @@ function caminoMasCorto(
   return { nodos, largoM: mejorTotal };
 }
 
+/**
+ * Tramo mínimo para intentar un ruteo parcial (m). En tramos cortos la recta
+ * que sobra pesaría tanto como la parte ruteada, y ahí un fix lejos de la vía
+ * sí quiere decir que la máquina está labrando dentro del lote.
+ */
+const PARCIAL_MIN_M = 1000;
+
+/**
+ * Lo más que puede quedar en recta al final de un ruteo parcial, como fracción
+ * de la recta entre los dos fixes. Pasado eso la vía no explica el tramo.
+ */
+const FRACCION_RESTO_PARCIAL = 0.2;
+
+/**
+ * Camino por la malla desde `desde` hasta el nodo que más se acerca a
+ * `objetivo`, sin pasar del techo `limite` contando el trecho final en recta.
+ *
+ * Es el mismo A* de caminoMasCorto, pero sin meta fija: recorre todo lo que
+ * cabe en el techo y se queda con el nodo más cercano al objetivo.
+ */
+function caminoHaciaPunto(
+  g: Grafo,
+  desde: Anclaje,
+  objetivo: Punto,
+  limite: number
+): { nodos: number[]; restoM: number } | null {
+  const h = (n: number) => Math.hypot(g.nx[n] - objetivo[0], g.ny[n] - objetivo[1]);
+
+  const coste = new Map<number, number>();
+  const previo = new Map<number, number>();
+  const abierta = new Cola();
+
+  const largoIni = largoArista(g, desde.arista);
+  for (const [n, off] of [
+    [g.ea[desde.arista], desde.t],
+    [g.eb[desde.arista], 1 - desde.t],
+  ] as [number, number][]) {
+    const c = off * largoIni;
+    if (!coste.has(n) || coste.get(n)! > c) {
+      coste.set(n, c);
+      abierta.push(n, c + h(n));
+    }
+  }
+
+  let mejorResto = Infinity;
+  let mejorNodo = -1;
+
+  while (!abierta.vacia) {
+    const [n, f] = abierta.pop();
+    if (f > limite) break;
+    const gn = coste.get(n);
+    if (gn === undefined || gn + h(n) > f + 1e-6) continue; // entrada vieja
+
+    if (h(n) < mejorResto) {
+      mejorResto = h(n);
+      mejorNodo = n;
+    }
+
+    const vs = g.vecinos[n];
+    if (!vs) continue;
+    for (let k = 0; k < vs.length; k++) {
+      const m = vs[k];
+      const ng = gn + g.pesos[n][k];
+      if (ng + h(m) > limite) continue;
+      const actual = coste.get(m);
+      if (actual === undefined || ng < actual) {
+        coste.set(m, ng);
+        previo.set(m, n);
+        abierta.push(m, ng + h(m));
+      }
+    }
+  }
+
+  if (mejorNodo < 0) return null;
+
+  const nodos: number[] = [];
+  let c: number | undefined = mejorNodo;
+  while (c !== undefined) {
+    nodos.push(c);
+    c = previo.get(c);
+  }
+  nodos.reverse();
+  return { nodos, restoM: mejorResto };
+}
+
+/**
+ * Tramo por la vía hasta donde la malla deja, y en recta sólo el resto.
+ *
+ * Cuando no hay camino completo creíble entre los dos fixes —el destino está
+ * en una vía interna que el GeoJSON sólo conecta dando la vuelta, o el fix
+ * queda lejos de cualquier vía— la recta entera cruzaba lotes por kilómetros
+ * (LZT927, 2 oct: 4,7 km en diagonal hasta el B.324, cuando la vía principal
+ * pasa a 380 m del fix). Aquí la máquina sale por la vía desde el extremo
+ * anclado y sólo el trecho final, el que de verdad no se sabe, queda en recta.
+ * Si ese resto pasa del 20 % de la recta, la vía no explica el tramo y se
+ * devuelve null para quedarse con la recta de siempre.
+ */
+function rutearParcial(
+  g: Grafo,
+  a: [number, number],
+  b: [number, number],
+  anclaA: Anclaje,
+  pb: Punto,
+  recta: number,
+  limite: number
+): Tramo | null {
+  if (recta < PARCIAL_MIN_M) return null;
+  const camino = caminoHaciaPunto(g, anclaA, pb, limite);
+  if (!camino || camino.restoM > recta * FRACCION_RESTO_PARCIAL) return null;
+  const latlngs = dedup([
+    a,
+    aGeo(anclaA.p),
+    ...camino.nodos.map((n): [number, number] => [latDe(g.ny[n]), lonDe(g.nx[n])]),
+    b,
+  ]);
+  return { latlngs, porVia: true, largoM: largoDe(latlngs) };
+}
+
 // ---------------------------------------------------------------- API
 
 const latDe = (y: number) => y / M_LAT;
@@ -605,10 +725,19 @@ function rutearTramo(
   const r = radioDeAnclaje(radio, recta);
   const anclaA = anclar(g, pa, r);
   const anclaB = anclar(g, pb, r);
-  // Alguno de los dos no está cerca de una vía: el tractor está dentro del lote.
-  if (!anclaA || !anclaB) return tramoRecto(a, b);
-
   const limite = recta * FACTOR_DESVIO + HOLGURA_DESVIO_M;
+
+  // Alguno de los dos no está cerca de una vía: el tractor está dentro del lote.
+  // En un tramo largo, igual se va por la vía desde el extremo que sí está en
+  // ella hasta donde la malla más se acerca al otro (ver rutearParcial).
+  if (!anclaA || !anclaB) {
+    if (anclaA) return rutearParcial(g, a, b, anclaA, pb, recta, limite) ?? tramoRecto(a, b);
+    if (anclaB) {
+      const t = rutearParcial(g, b, a, anclaB, pa, recta, limite);
+      return t ? { ...t, latlngs: [...t.latlngs].reverse() } : tramoRecto(a, b);
+    }
+    return tramoRecto(a, b);
+  }
 
   // Mismo tramo de vía: no hay nada que buscar, se va derecho por la arista.
   if (anclaA.arista === anclaB.arista) {
@@ -622,10 +751,13 @@ function rutearTramo(
   }
 
   const camino = caminoMasCorto(g, anclaA, anclaB, limite);
-  if (!camino) return tramoRecto(a, b);
 
-  // Rodeo desproporcionado: probablemente falta una vía en el archivo.
-  if (camino.largoM > limite) return tramoRecto(a, b);
+  // Sin camino dentro del techo (o con un rodeo desproporcionado: probablemente
+  // falta una vía en el archivo), se intenta llegar por la vía lo más cerca
+  // posible del destino antes de rendirse a la recta entera.
+  if (!camino || camino.largoM > limite) {
+    return rutearParcial(g, a, b, anclaA, pb, recta, limite) ?? tramoRecto(a, b);
+  }
 
   const latlngs = dedup([
     a,

@@ -25,6 +25,33 @@ import type { ReplayPos } from "@/components/MapGL";
  */
 export const GAP_INTERPOLA_MIN = 20;
 
+/**
+ * Hasta qué hueco un silencio ruteado se sigue tratando como recorrido (min).
+ *
+ * Pasados los 20 min la recta entre fixes es puro invento, pero no así el
+ * camino por vías cuando el tiempo alcanza para recorrerlo: un camión que se
+ * salta dos o tres reportes en carretera (QTZ327, 2 oct: 9,3 km de recta en
+ * 33 min) no desapareció, siguió por la vía, y dibujarlo punteado en diagonal
+ * cruzando lotes era el salto falso. Hasta una hora, si el ruteo lo resolvió y
+ * la velocidad que implica es de vehículo en vía, se dibuja y se recorre como
+ * cualquier otro tramo. Más allá, o con una velocidad imposible, sigue siendo
+ * un silencio.
+ */
+const GAP_RUTEADO_MAX_MIN = 60;
+/** Velocidad media máxima creíble por las vías del predio (km/h). */
+const VEL_RUTEADO_MAX_KMH = 60;
+
+/**
+ * true si entre dos fixes separados `huecoMin` no hay que afirmar trayecto:
+ * el hueco pasa del umbral y el tramo no quedó cubierto por un ruteo creíble.
+ */
+export function esSilencio(huecoMin: number, tramo?: Tramo | null): boolean {
+  if (huecoMin <= GAP_INTERPOLA_MIN) return false;
+  if (huecoMin > GAP_RUTEADO_MAX_MIN) return true;
+  if (!tramo || !(tramo.porVia || tramo.porSurco) || tramo.largoM <= 0) return true;
+  return tramo.largoM / 1000 / (huecoMin / 60) > VEL_RUTEADO_MAX_KMH;
+}
+
 /** Minuto del día (0-1439) en hora de Bogotá al que corresponde un instante. */
 export function minuteOfDay(iso: string): number {
   const d = new Date(iso);
@@ -133,8 +160,10 @@ export function positionAt(
   const b = minutoDe(next);
   const hueco = b - a;
 
-  // Silencio largo: no se inventa trayecto.
-  if (hueco > GAP_INTERPOLA_MIN) return quieto(prev, anterior);
+  // Silencio largo: no se inventa trayecto (salvo que vaya por una vía, ver
+  // esSilencio).
+  const tramo = tramos?.[iPrev];
+  if (esSilencio(hueco, tramo)) return quieto(prev, anterior);
 
   const f = hueco > 0 ? (minute - a) / hueco : 0;
   const distM = next.dist_prev_fix_m ?? null;
@@ -147,7 +176,6 @@ export function positionAt(
   // está dibujado debajo, así que el ícono va por donde va el rastro y gira en
   // las curvas. Sigue siendo una hipótesis —ver lib/rutas.ts—, sólo que ahora es
   // la hipótesis razonable en lugar de la recta imposible.
-  const tramo = tramos?.[iPrev];
   if ((tramo?.porVia || tramo?.porSurco) && tramo.largoM > 0) {
     const pos = posicionEnTramo(tramo, f);
     return {

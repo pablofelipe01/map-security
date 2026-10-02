@@ -8,6 +8,8 @@ import { ESTADO_META, fmtEdad, SIN_SENAL_MIN } from "@/lib/fleet";
 import { maquinaDe } from "@/lib/tractores";
 import { puestoDe } from "@/lib/puestos";
 import { dayRange, shiftDay, todayLocal } from "@/lib/ranges";
+import { grafoVias, rutearRastro, type Tramo } from "@/lib/rutas";
+import { surcosPara } from "@/lib/surcos";
 import BarChart from "./BarChart";
 import PorteriaPanel from "./PorteriaPanel";
 import TanqueosPanel from "./TanqueosPanel";
@@ -51,6 +53,27 @@ const DIAS = 14;
  * Se omiten en vez de mostrarlos en cero, que es lo que haría creer que la
  * máquina no ha consumido ni se ha reparado nunca.
  */
+/**
+ * Prepara el ruteo (grafo de vías y calles de palma de los bloques que tocan
+ * los puntos) una sola vez para toda la ventana, y devuelve con qué rutear cada
+ * día. Mismo ruteo que el mapa (lib/useRutas.ts).
+ */
+async function rutadorDe(
+  puntos: TrackPoint[]
+): Promise<(points: TrackPoint[]) => Tramo[] | null> {
+  if (puntos.length < 2) return () => null;
+  const g = await grafoVias();
+  if (!g) return () => null;
+  const surcos = await surcosPara(puntos.map((p) => [p.lat, p.lon]));
+  return (points) =>
+    points.length < 2
+      ? null
+      : rutearRastro(g, points.map((p) => [p.lat, p.lon]), undefined, {
+          surcos,
+          tiempos: points.map((p) => Date.parse(p.gps_time ?? p.sample_local)),
+        });
+}
+
 export default function MachineView({ node, fecha, combustible, onBack }: Props) {
   // Ventana anclada al día pedido. "Hoy" es el caso normal; cualquier otro día
   // convierte la ficha en una foto del pasado, y el estado en vivo deja de
@@ -85,6 +108,13 @@ export default function MachineView({ node, fecha, combustible, onBack }: Props)
           () => []
         );
 
+        // Los km salen del recorrido ruteado, igual que en el mapa (ver
+        // computeStats): sin esto la ficha diría menos kilómetros que el panel
+        // de la flota para el mismo día. Si el grafo no carga, quedan las rectas.
+        const rutear = await rutadorDe(
+          puestoDe(node.node_id) ? [] : series.flatMap((d) => d.points)
+        );
+
         const out: Dia[] = series.map(({ date, points }) => {
           const r = dayRange(date);
           const delDia = estadias.filter(
@@ -92,7 +122,7 @@ export default function MachineView({ node, fecha, combustible, onBack }: Props)
           );
           return {
             date,
-            stats: computeStats(enrichTrack(points), delDia),
+            stats: computeStats(enrichTrack(points), delDia, rutear(points)),
             puntos: points.length,
             primero: horaDe(points[0]),
             ultimo: horaDe(points[points.length - 1]),

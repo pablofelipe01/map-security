@@ -6,8 +6,11 @@ import { Tile } from "./SidePanel";
 import { fmtTime, fmtDateTime } from "@/lib/geo";
 import { bogotaDay, shiftDay } from "@/lib/ranges";
 import {
+  esFilaSalida,
+  estimarSalidas,
   fetchPorteria,
   resumirPorteria,
+  tieneSalida,
   type Porteria,
   type RegistroPorteria,
 } from "@/lib/porteria";
@@ -57,7 +60,12 @@ export default function PorteriaPanel({ nodeId, desde, hasta, nombre }: Props) {
     };
   }, [nodeId, desde, hasta]);
 
-  const registros = useMemo(() => data?.registros ?? [], [data]);
+  // Las entradas sin salida reciben la de su estadía promedio (ver
+  // estimarSalidas). Sólo en la ficha: Airtable queda como lo dejó la portería.
+  const { registros } = useMemo(
+    () => estimarSalidas(data?.registros ?? []),
+    [data]
+  );
   const resumen = useMemo(() => resumirPorteria(registros), [registros]);
 
   /**
@@ -71,7 +79,7 @@ export default function PorteriaPanel({ nodeId, desde, hasta, nombre }: Props) {
     for (let d = desde; d <= hasta; d = shiftDay(d, 1)) dias.push(d);
     const cuenta = new Map(dias.map((d) => [d, 0]));
     for (const r of registros) {
-      if (r.tipo === "SALIDA" || r.tipo === "SALIDA_SIN_ENTRADA") continue;
+      if (esFilaSalida(r)) continue;
       const dia = bogotaDay(r.t);
       const previo = cuenta.get(dia);
       if (previo !== undefined) cuenta.set(dia, previo + 1);
@@ -107,9 +115,10 @@ export default function PorteriaPanel({ nodeId, desde, hasta, nombre }: Props) {
 
       {data && (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Tile label="Entradas" value={String(resumen.entradas)} />
             <Tile label="Salidas" value={String(resumen.salidas)} />
+            <Tile label="Adentro" value={String(resumen.adentro)} />
             <Tile label="Vehículos" value={String(resumen.vehiculos)} />
             <Tile label="Peatones" value={String(resumen.peatones)} />
             <Tile label="Negados" value={String(resumen.negados)} />
@@ -211,12 +220,12 @@ function Fila({ r }: { r: RegistroPorteria }) {
         <div className="font-mono text-[11px]">{fmtDateTime(r.t)}</div>
         {/* Entrada y salida en la misma fila: es la estadía del visitante, y
             saber que sigue adentro es media pregunta de una portería. */}
-        {r.entrada && r.salida && (
+        {r.entrada && (r.salida ?? r.salidaEstimada) && (
           <div className="text-[10px] text-ink-3">
-            {fmtTime(r.entrada)} → {fmtTime(r.salida)}
+            {fmtTime(r.entrada)} → {fmtTime(r.salida ?? r.salidaEstimada ?? null)}
           </div>
         )}
-        {r.entrada && !r.salida && !salida && (
+        {r.entrada && !r.salida && !r.salidaEstimada && !salida && (
           <div className="text-[10px] text-ink-3">sin salida registrada</div>
         )}
       </Td>
@@ -269,9 +278,10 @@ function Fila({ r }: { r: RegistroPorteria }) {
 }
 
 function pasaFiltro(r: RegistroPorteria, f: Filtro): boolean {
-  const salida = r.tipo === "SALIDA" || r.tipo === "SALIDA_SIN_ENTRADA";
-  if (f === "entradas") return !salida;
-  if (f === "salidas") return salida;
+  // Una entrada con su salida anotada cuenta en los dos filtros: la fila es
+  // la estadía completa del visitante (ver tieneSalida en lib/porteria.ts).
+  if (f === "entradas") return !esFilaSalida(r);
+  if (f === "salidas") return tieneSalida(r);
   if (f === "negados") return r.estado === "NEGADO";
   return true;
 }

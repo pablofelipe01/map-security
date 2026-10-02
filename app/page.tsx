@@ -447,12 +447,18 @@ export default function Page() {
     () =>
       tracks.map(({ node, points }) => ({
         node,
-        stats: computeStats(enrichTrack(points), estadias[node.node_id] ?? []),
+        // Con el recorrido ruteado los km son los del camino dibujado, no los
+        // de las rectas entre fixes (ver computeStats).
+        stats: computeStats(
+          enrichTrack(points),
+          estadias[node.node_id] ?? [],
+          rutas?.get(node.node_id)
+        ),
         puntos: points.length,
         estadias: estadias[node.node_id] ?? [],
         piezas: piezas.get(node.node_id) ?? [],
       })),
-    [tracks, estadias, piezas]
+    [tracks, estadias, piezas, rutas]
   );
 
   const ventana = useMemo(

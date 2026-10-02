@@ -21,7 +21,7 @@ import { computeStats, enrichTrack } from "./geo";
 import { unirTramos, type Tramo } from "./rutas";
 import { maquinaDeNodoEn, operadorDeMaquinaEn, type Flota } from "./registro";
 import { COLOR_DEFAULT } from "./tractores";
-import { GAP_INTERPOLA_MIN } from "./replay";
+import { esSilencio } from "./replay";
 import type { TrackPoint } from "./types";
 
 /** Un pedazo del recorrido hecho con una misma máquina. */
@@ -106,7 +106,11 @@ export function partirPorMaquina(
       // `tramos[i]` va del punto i al i+1, así que la rebanada que corresponde a
       // los puntos [desdeIdx, fin) es [desdeIdx, fin-1).
       ruta: tramos ? unirTramos(tramos.slice(desdeIdx, fin - 1)) : null,
-      metros: computeStats(enrichTrack(trozo), []).totalDistanceM,
+      metros: computeStats(
+        enrichTrack(trozo),
+        [],
+        tramos ? tramos.slice(desdeIdx, fin - 1) : null
+      ).totalDistanceM,
       desde: horaDe(trozo[0]),
       hasta: horaDe(trozo[trozo.length - 1]),
       idxDesde: desdeIdx,
@@ -126,10 +130,11 @@ export function huboCambioDeMaquina(piezas: PiezaRastro[]): boolean {
  * Un trozo dibujable del rastro: tramos seguidos de la misma máquina y de la
  * misma naturaleza.
  *
- * `sinSenal` = entre esos dos fixes pasaron más de `GAP_INTERPOLA_MIN` minutos.
- * La línea que los une no es un recorrido sino un silencio del nodo, y el mapa
- * la dibuja punteada para que no se lea como un trayecto medido. Es el mismo
- * umbral con el que el replay deja de deslizar el marcador.
+ * `sinSenal` = entre esos dos fixes pasaron más de `GAP_INTERPOLA_MIN` minutos (lib/replay.ts)
+ * y el ruteo no alcanzó a cubrir el hueco con un camino creíble (ver
+ * `esSilencio`). La línea que los une no es un recorrido sino un silencio del
+ * nodo, y el mapa la dibuja punteada para que no se lea como un trayecto
+ * medido. Es el mismo criterio con el que el replay deja de deslizar el marcador.
  */
 export interface SegmentoRastro {
   color: string;
@@ -167,7 +172,7 @@ export function segmentosDelRastro(
     const a = points[i];
     const b = points[i + 1];
     const huecoMin = (Date.parse(horaDe(b)) - Date.parse(horaDe(a))) / 60_000;
-    const sinSenal = huecoMin > GAP_INTERPOLA_MIN;
+    const sinSenal = esSilencio(huecoMin, tramos?.[i]);
     // En un silencio no se rutea por vías: el camino más corto entre dos
     // puntos separados por una hora sin reporte afirmaría demasiado.
     const geom: [number, number][] =

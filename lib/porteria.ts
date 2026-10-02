@@ -41,6 +41,12 @@ export interface RegistroPorteria {
   motivo: string | null;
   entrada: string | null; // ISO UTC
   salida: string | null; // ISO UTC
+  /**
+   * Salida supuesta para una entrada que nunca registró la suya (ver
+   * `estimarSalidas`). La calcula el cliente; no viene de Airtable ni se
+   * escribe allá. Null o ausente cuando hay salida real o no aplica.
+   */
+  salidaEstimada?: string | null; // ISO UTC
   autorizadoPor: string | null;
   supervisor: string | null;
   comentario: string | null;
@@ -90,19 +96,114 @@ export async function fetchPorteria(
   return body as Porteria;
 }
 
+/** true si la fila es en sí misma un evento de salida (sin entrada asociada). */
+export function esFilaSalida(r: RegistroPorteria): boolean {
+  return r.tipo === "SALIDA" || r.tipo === "SALIDA_SIN_ENTRADA";
+}
+
+/**
+ * true si el registro dice que alguien salió.
+ *
+ * La app de portería NO crea una fila nueva al marcar la salida: le pone
+ * `exit_time` a la misma fila de la ENTRADA. Las filas tipo SALIDA son sólo
+ * las salidas sin entrada previa. Contar únicamente esas daba "200 entradas,
+ * 3 salidas" en Control 1 (2 oct), cuando 166 de esas entradas ya tenían su
+ * salida anotada.
+ */
+export function tieneSalida(r: RegistroPorteria): boolean {
+  return esFilaSalida(r) || r.salida != null || r.salidaEstimada != null;
+}
+
+/**
+ * Estadías más largas que esto no entran al promedio (h): son salidas que se
+ * marcaron días después, no visitas, y con ellas el promedio se iría a la
+ * deriva justo por el error que se quiere tapar.
+ */
+const ESTADIA_MAX_H = 24;
+
+/** Promedio de estadía (min) por categoría, con cuántas estadías lo sostienen. */
+export interface PromedioEstadia {
+  minutos: number;
+  muestras: number;
+}
+
+export type PromediosEstadia = Partial<
+  Record<CategoriaEvento | "GENERAL", PromedioEstadia>
+>;
+
+/**
+ * Pone una salida estimada a las entradas que no registraron la suya.
+ *
+ * En Control 1 una de cada cinco entradas aprobadas quedaba sin salida, casi
+ * todas de vehículos y muchas con días abiertas: en portería se olvida marcar
+ * la salida. Se le asigna la hora de entrada más la estadía promedio de su
+ * categoría (vehículo, peatón…), calculada con las estadías cerradas de la
+ * misma ventana. Si la categoría no tiene estadías cerradas se usa el promedio
+ * general.
+ *
+ * Una entrada cuya salida estimada todavía no llega (`ahora`) se deja sin
+ * estimar: lo más probable es que esa persona siga adentro, y darla por salida
+ * sería decir algo falso hoy mismo.
+ *
+ * La ficha la muestra como una salida más, sin distinguirla. Airtable no se
+ * toca: en cuanto la portería marque la salida real, esa reemplaza a esta, y
+ * en el código sigue separada en `salidaEstimada` por si hace falta auditarla.
+ */
+export function estimarSalidas(
+  registros: RegistroPorteria[],
+  ahora: number = Date.now()
+): { registros: RegistroPorteria[]; promedios: PromediosEstadia } {
+  const suma = new Map<string, { min: number; n: number }>();
+  const sumar = (k: string, min: number) => {
+    const a = suma.get(k) ?? { min: 0, n: 0 };
+    a.min += min;
+    a.n++;
+    suma.set(k, a);
+  };
+  for (const r of registros) {
+    if (esFilaSalida(r) || !r.entrada || !r.salida) continue;
+    const min = (Date.parse(r.salida) - Date.parse(r.entrada)) / 60_000;
+    if (!(min > 0) || min > ESTADIA_MAX_H * 60) continue;
+    sumar("GENERAL", min);
+    if (r.categoria) sumar(r.categoria, min);
+  }
+
+  const promedios: PromediosEstadia = {};
+  for (const [k, { min, n }] of suma) {
+    promedios[k as keyof PromediosEstadia] = { minutos: min / n, muestras: n };
+  }
+
+  const out = registros.map((r) => {
+    if (esFilaSalida(r) || !r.entrada || r.salida || r.estado === "NEGADO") return r;
+    const prom = (r.categoria && promedios[r.categoria]) || promedios.GENERAL;
+    if (!prom) return r;
+    const t = Date.parse(r.entrada) + prom.minutos * 60_000;
+    if (!Number.isFinite(t) || t > ahora) return r;
+    return { ...r, salidaEstimada: new Date(t).toISOString() };
+  });
+  return { registros: out, promedios };
+}
+
 /** Cuenta los eventos de cada tipo en una tanda de registros. */
 export function resumirPorteria(registros: RegistroPorteria[]) {
   let entradas = 0;
   let salidas = 0;
+  let estimadas = 0;
+  let adentro = 0;
   let vehiculos = 0;
   let peatones = 0;
   let negados = 0;
   for (const r of registros) {
-    if (r.tipo === "SALIDA" || r.tipo === "SALIDA_SIN_ENTRADA") salidas++;
-    else entradas++;
+    if (!esFilaSalida(r)) {
+      entradas++;
+      if (r.salidaEstimada != null) estimadas++;
+      // Aprobado, sin salida y todavía dentro de la estadía promedio.
+      else if (r.salida == null && r.estado !== "NEGADO") adentro++;
+    }
+    if (tieneSalida(r)) salidas++;
     if (r.categoria === "VEHICULO") vehiculos++;
     else if (r.categoria === "PEATON") peatones++;
     if (r.estado === "NEGADO") negados++;
   }
-  return { entradas, salidas, vehiculos, peatones, negados };
+  return { entradas, salidas, estimadas, adentro, vehiculos, peatones, negados };
 }

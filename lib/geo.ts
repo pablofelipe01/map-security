@@ -13,6 +13,31 @@ const R = 6371000; // radio terrestre en metros
  * importado de `fleet.ts` para que `geo.ts` no dependa de la capa de flota.
  */
 const MOVIMIENTO_TRAMO_M = 35;
+/**
+ * Lo único que computeStats necesita de un tramo ruteado. Se declara aquí y no
+ * se importa `Tramo` para que `geo.ts` no dependa de lib/rutas.ts.
+ */
+export interface TramoMedible {
+  largoM: number;
+  porVia: boolean;
+  porSurco?: boolean;
+}
+
+/**
+ * Largo del tramo que llega al punto `i`, si quedó ruteado. Null cuando no hay
+ * ruteo, cuando los tramos no corresponden uno a uno con los puntos (otra
+ * versión del rastro) o cuando el tramo quedó como recta.
+ */
+function largoRuteado(
+  tramos: TramoMedible[] | null | undefined,
+  nPuntos: number,
+  i: number
+): number | null {
+  if (!tramos || tramos.length !== nPuntos - 1) return null;
+  const t = tramos[i - 1];
+  return t && (t.porVia || t.porSurco) && t.largoM > 0 ? t.largoM : null;
+}
+
 const toRad = (d: number) => (d * Math.PI) / 180;
 const toDeg = (r: number) => (r * 180) / Math.PI;
 
@@ -85,10 +110,19 @@ export function enrichTrack(points: TrackPoint[]): EnrichedPoint[] {
  *
  * Las detenciones y los minutos quieto vienen de `estadias` (las calcula el
  * backend agrupando fixes), no de contar fixes aquí.
+ *
+ * `tramos` es el recorrido reconstruido por vías y calles de palma (ver
+ * lib/rutas.ts), uno por cada par de fixes. Con él la distancia de cada tramo
+ * es la del camino dibujado y no la recta entre fixes: un camión que reporta
+ * cada 10 min a 40 km/h hace kilómetros entre un fix y otro, y la recta le
+ * recortaba un tercio del recorrido (QTZ327, 2 oct: 17,9 km en recta contra
+ * 26,6 km por las vías que de verdad transitó). El umbral de movimiento se
+ * sigue juzgando con la recta: decide si la máquina se movió, no cuánto.
  */
 export function computeStats(
   points: EnrichedPoint[],
-  estadias: Estadia[] = []
+  estadias: Estadia[] = [],
+  tramos?: TramoMedible[] | null
 ): TrackStats {
   const stationaryMin = estadias.reduce((acc, e) => acc + (e.minutos ?? 0), 0);
   const stops = estadias.length;
@@ -127,12 +161,13 @@ export function computeStats(
     // debajo del umbral es ruido del GPS con la máquina parada.
     if (tramoM < MOVIMIENTO_TRAMO_M) continue;
 
-    dist += tramoM;
+    const recorridoM = largoRuteado(tramos, points.length, i) ?? tramoM;
+    dist += recorridoM;
     movingMin += tramoMin;
 
     // Velocidad máxima medida (km/h), no la reportada por el radio.
     if (tramoMin > 0) {
-      const kmh = tramoM / 1000 / (tramoMin / 60);
+      const kmh = recorridoM / 1000 / (tramoMin / 60);
       maxSpeed = maxSpeed == null ? kmh : Math.max(maxSpeed, kmh);
     }
   }
