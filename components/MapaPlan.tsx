@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import {
   Map as MapLibreMap,
+  setWorkerUrl,
   type GeoJSONSource,
   type MapMouseEvent,
 } from "maplibre-gl";
@@ -28,6 +29,15 @@ import { DEFAULT_CENTER } from "@/lib/geo";
  * discrepan.
  */
 
+/**
+ * El worker servido desde `public/`, igual que en `components/MapGL.tsx` (el
+ * porqué está allá). Hay que fijarlo también acá: si la planeación o la
+ * planilla se abren sin haber pasado por la torre, MapGL nunca se importó, el
+ * worker no arranca y ninguna fuente GeoJSON se procesa — se ve el satélite y
+ * nada encima, ni vías ni rutas, y el `load` del mapa no llega nunca.
+ */
+setWorkerUrl("/maplibre-gl-worker.mjs");
+
 /** Los mismos archivos que pinta la torre. Ver `components/MapGL.tsx`. */
 const VIAS_URL = "/vias-guaicaramo.geojson";
 const ACOPIOS_URL = "/acopios-guaicaramo.geojson";
@@ -49,7 +59,8 @@ const ACOPIOS_COLOR = "#bcd983";
 export interface ParadaMapa {
   lat: number;
   lon: number;
-  orden: number;
+  /** Lo que va dentro del círculo: el número de orden, o "P" para la planta. */
+  orden: number | string;
   codigo: string;
   color: string;
   /** Atenúa las que ya se cerraron: lo pendiente es lo que hay que mirar. */
@@ -67,6 +78,11 @@ export interface RutaMapa {
    * ruta, es la falta de una, y el mapa no debe hacerla pasar por una.
    */
   aproximada: boolean;
+  /**
+   * Corrimiento lateral en px. Una ida y una vuelta por la misma vía se
+   * taparían una a la otra; corridas a lados opuestos se leen como dos carriles.
+   */
+  offset?: number;
 }
 
 export interface MaquinaMapa {
@@ -197,6 +213,7 @@ export default function MapaPlan({
               "line-color": "#1a1a33",
               "line-opacity": 0.5,
               "line-width": ["interpolate", ["linear"], ["zoom"], 11, 4, 16, 9],
+              "line-offset": ["get", "offset"],
             },
           },
           {
@@ -207,6 +224,7 @@ export default function MapaPlan({
             paint: {
               "line-color": ["get", "color"],
               "line-width": ["interpolate", ["linear"], ["zoom"], 11, 2, 16, 5],
+              "line-offset": ["get", "offset"],
               // Punteada cuando el tramo no se resolvió por vías. El patrón va
               // en unidades de ancho de línea, así que se lee igual a toda escala.
               "line-dasharray": [
@@ -305,6 +323,17 @@ export default function MapaPlan({
       attributionControl: { compact: true },
     });
 
+    // Una tesela satelital que no llegó (señal de campo, Esri cortando, o el
+    // diálogo cerrado con pedidos en vuelo) no rompe nada: MapLibre la
+    // reintenta. Sin oyente iría a `console.error` y Next la pintaría como
+    // error de pantalla. Mismo criterio que `components/MapGL.tsx`.
+    map.on("error", (ev) => {
+      const e = ev as { error?: { url?: string; message?: string }; sourceId?: string };
+      const url = e.error?.url ?? e.error?.message ?? "";
+      if (e.sourceId === "esri" || url.includes("arcgisonline.com")) return;
+      console.warn("[mapa]", e.error ?? e);
+    });
+
     map.on("load", () => {
       listoRef.current = true;
       for (const fn of colaRef.current) fn();
@@ -315,8 +344,8 @@ export default function MapaPlan({
       clickRef.current?.(e.lngLat.lat, e.lngLat.lng);
     });
     // El cursor avisa que el mapa es accionable: sin esto nadie descubre que se
-    // puede señalar un acopio con el clic.
-    map.getCanvas().style.cursor = "crosshair";
+    // puede señalar un acopio con el clic. Si nadie escucha el clic, no lo es.
+    if (clickRef.current) map.getCanvas().style.cursor = "crosshair";
 
     mapRef.current = map;
 
@@ -343,7 +372,11 @@ export default function MapaPlan({
                 type: "LineString" as const,
                 coordinates: r.latlngs.map(([lat, lon]) => [lon, lat]),
               },
-              properties: { color: r.color, aproximada: r.aproximada },
+              properties: {
+                color: r.color,
+                aproximada: r.aproximada,
+                offset: r.offset ?? 0,
+              },
             })),
         });
       }

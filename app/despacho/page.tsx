@@ -41,10 +41,11 @@ import { SUPABASE_READY } from "@/lib/supabase";
  * planeación necesita el mapa a pantalla completa y ésta no necesita mapa
  * ninguno. Comparten los acopios y la jornada, no el gesto.
  *
- * NO HAY MAPA ACÁ, y es a propósito. La hoja se llena de oído: entra el reporte
- * por radio y se anota. Lo único que hace falta ver es si el acopio existe, y
- * eso se contesta con el código que aparece bajo las casillas. El día que haga
- * falta ubicarlos, el mapa de `/despacho/rutas` ya sabe pintar acopios.
+ * NO HAY MAPA EN LA HOJA, y es a propósito. La hoja se llena de oído: entra el
+ * reporte por radio y se anota. Lo único que hace falta ver es si el acopio
+ * existe, y eso se contesta con el código que aparece bajo las casillas. El
+ * mapa aparece sólo al abrir la ruta de un renglón (columna "Ruta"), que es una
+ * consulta y no parte del gesto de anotar.
  *
  * SIN POLL. La planeación refresca cada minuto porque mira posiciones de nodos
  * que cambian solas; acá el único que escribe es quien está mirando la

@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import CasillasAcopio from "./CasillasAcopio";
 import { Aviso, Campo, Dialogo } from "./Form";
+import { CeldaRuta, DialogoRuta } from "./RutaViaje";
 import {
   TIPOS_FRUTO,
   casillasDe,
@@ -18,6 +19,15 @@ import { fmtTime } from "@/lib/geo";
 import { bogotaISO } from "@/lib/ranges";
 import type { Acopio } from "@/lib/acopios";
 import type { OperadorRow } from "@/lib/registro";
+import { grafoVias, type Grafo } from "@/lib/rutas";
+import {
+  CLAVE_PARAMETROS,
+  PARAMETROS_POR_DEFECTO,
+  parametrosValidos,
+  rutaDeViaje,
+  type ParametrosVuelta,
+  type ResultadoRuta,
+} from "@/lib/rutaViaje";
 
 /**
  * La hoja de Logística y Transporte, renglón por renglón.
@@ -42,9 +52,11 @@ import type { OperadorRow } from "@/lib/registro";
  * renglones de un vistazo—. Es el mismo criterio de toda la app: móvil primero
  * y `md:` para restaurar el escritorio (ver README, "Uso en celular").
  *
- * LO QUE ESTA PANTALLA NO HACE. No asigna máquina ni propone ruta — eso es la
- * planeación (`app/despacho/rutas/page.tsx`), que arma la jornada de cada
- * tractor. Acá se registra lo que entró y lo que salió. Las dos hojas hablan de
+ * LO QUE ESTA PANTALLA NO HACE. No asigna máquina ni arma la jornada de cada
+ * tractor — eso es la planeación (`app/despacho/rutas/page.tsx`). Sí calcula,
+ * renglón por renglón, la vuelta Planta → acopios → Planta y cuánto tarda
+ * (columna "Ruta", ver `lib/rutaViaje.ts`): es una consecuencia del renglón,
+ * no una decisión, y no le pide nada más al que anota. Acá se registra lo que entró y lo que salió. Las dos hojas hablan de
  * los mismos acopios y por eso van a poder cruzarse, pero mezclarlas obligaría a
  * que el que anota un reporte a las 6 a.m. ya sepa qué máquina lo va a atender,
  * que es justo lo que todavía no sabe.
@@ -79,7 +91,53 @@ export default function PlanillaVagones({
   onCrearAcopio,
 }: Props) {
   const [editando, setEditando] = useState<Viaje | null>(null);
+  const [viendoRuta, setViendoRuta] = useState<Viaje | null>(null);
   const resumen = useMemo(() => resumirPlanilla(viajes), [viajes]);
+
+  // El grafo vial se arma una vez por sesión y lo comparte con la planeación.
+  // Hasta que llega, la columna dice "Calculando…".
+  const [grafo, setGrafo] = useState<Grafo | null>(null);
+  const [grafoListo, setGrafoListo] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    void grafoVias().then((g) => {
+      if (!vivo) return;
+      setGrafo(g);
+      setGrafoListo(true);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Las velocidades son preferencia de quien despacha: se recuerdan en el
+  // navegador y, si el almacenamiento falla, se usan las de arranque.
+  const [parametros, setParametros] = useState<ParametrosVuelta>(PARAMETROS_POR_DEFECTO);
+  useEffect(() => {
+    try {
+      const p = parametrosValidos(JSON.parse(localStorage.getItem(CLAVE_PARAMETROS) ?? "null"));
+      if (p) setParametros(p);
+    } catch {
+      /* sin preferencia guardada */
+    }
+  }, []);
+  const cambiarParametros = useCallback((p: ParametrosVuelta) => {
+    setParametros(p);
+    try {
+      localStorage.setItem(CLAVE_PARAMETROS, JSON.stringify(p));
+    } catch {
+      /* vale sólo para esta visita */
+    }
+  }, []);
+
+  // Una ruta por renglón. El ruteo de cada tramo queda en la caché de
+  // lib/rutas.ts, así que recalcular al cambiar una velocidad sólo rehace la
+  // aritmética.
+  const rutas = useMemo(() => {
+    const m = new Map<string, ResultadoRuta | null>();
+    for (const v of viajes) m.set(v.id, grafoListo ? rutaDeViaje(grafo, v, parametros) : null);
+    return m;
+  }, [viajes, grafo, grafoListo, parametros]);
 
   const vacio = viajes.length === 0;
 
@@ -156,7 +214,9 @@ export default function PlanillaVagones({
                   key={v.id}
                   viaje={v}
                   ocupado={ocupado}
+                  ruta={rutas.get(v.id) ?? null}
                   onAbrir={() => setEditando(v)}
+                  onRuta={() => setViendoRuta(v)}
                   onSalida={() => onSalida(v.id)}
                 />
               ))}
@@ -166,7 +226,7 @@ export default function PlanillaVagones({
           {/* --------------------- la hoja en escritorio --------------------- */}
           {!vacio && (
             <div className="card hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[820px] border-collapse text-[12px]">
+              <table className="w-full min-w-[960px] border-collapse text-[12px]">
                 <thead>
                   <tr className="border-b border-border">
                     <Th ancho={38}>No.</Th>
@@ -179,6 +239,9 @@ export default function PlanillaVagones({
                     <Th ancho={150}>Ubicación de vagones</Th>
                     <Th ancho={60}># Vagón</Th>
                     <Th ancho={120}>Conductor</Th>
+                    <Th ancho={136} titulo="Planta → acopios → Planta, estimado">
+                      Ruta
+                    </Th>
                     <Th>Observaciones</Th>
                   </tr>
                 </thead>
@@ -189,7 +252,9 @@ export default function PlanillaVagones({
                       key={v.id}
                       viaje={v}
                       ocupado={ocupado}
+                      ruta={rutas.get(v.id) ?? null}
                       onAbrir={() => setEditando(v)}
+                      onRuta={() => setViendoRuta(v)}
                       onSalida={() => onSalida(v.id)}
                     />
                   ))}
@@ -199,6 +264,16 @@ export default function PlanillaVagones({
           )}
         </div>
       </div>
+
+      {viendoRuta && (
+        <DialogoRuta
+          viaje={viendoRuta}
+          resultado={rutas.get(viendoRuta.id) ?? null}
+          parametros={parametros}
+          onParametros={cambiarParametros}
+          onClose={() => setViendoRuta(null)}
+        />
+      )}
 
       {editando && (
         <DialogoViaje
@@ -327,12 +402,16 @@ function Tile({
 function Tarjeta({
   viaje,
   ocupado,
+  ruta,
   onAbrir,
+  onRuta,
   onSalida,
 }: {
   viaje: Viaje;
   ocupado?: boolean;
+  ruta: ResultadoRuta | null;
   onAbrir: () => void;
+  onRuta: () => void;
   onSalida: () => void;
 }) {
   const { origenB, origenN, destinoB, destinoN, pendiente } = datosFila(viaje);
@@ -407,6 +486,13 @@ function Tarjeta({
         )}
       </button>
 
+      {/* Fuera del botón que abre la corrección, por lo mismo que la salida. */}
+      <div className="border-t border-border px-3 py-2">
+        <Dato label="Ruta">
+          <CeldaRuta viaje={viaje} resultado={ruta} onAbrir={onRuta} ancho />
+        </Dato>
+      </div>
+
       {pendiente && (
         <div className="border-t border-border p-2">
           <button
@@ -472,12 +558,16 @@ function Th({
 function Fila({
   viaje,
   ocupado,
+  ruta,
   onAbrir,
+  onRuta,
   onSalida,
 }: {
   viaje: Viaje;
   ocupado?: boolean;
+  ruta: ResultadoRuta | null;
   onAbrir: () => void;
+  onRuta: () => void;
   onSalida: () => void;
 }) {
   const { origenB, origenN, destinoB, destinoN, pendiente } = datosFila(viaje);
@@ -539,6 +629,10 @@ function Fila({
             Sin asignar
           </span>
         )}
+      </td>
+
+      <td className="px-2 py-1.5">
+        <CeldaRuta viaje={viaje} resultado={ruta} onAbrir={onRuta} />
       </td>
 
       <td className="px-2 py-1.5 text-ink-2">{viaje.observaciones ?? ""}</td>
