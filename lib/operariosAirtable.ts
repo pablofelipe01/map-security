@@ -72,7 +72,7 @@ function comoAirtable(nombre: string): string {
 
 interface Operario {
   airtableId: string;
-  /** El `id` numérico que lleva la tabla a mano (1, 2, 3…). */
+  /** El `id` numérico de la tabla (autonumber de Airtable). */
   numero: number | null;
   nombre: string;
   cedula: string;
@@ -330,17 +330,14 @@ export async function darDeAlta(input: AltaOperador): Promise<OperadorRow> {
     );
   }
 
-  // El `id` numérico lo lleva la tabla a mano y lo usa la app de combustible:
-  // se sigue la cuenta. No es atómico, pero las altas son de a una y a mano.
-  const siguiente =
-    Math.max(0, ...operarios.map((o) => o.numero ?? 0)) + 1;
+  // El `id` numérico es un autonumber de Airtable: lo asigna la tabla y
+  // rechaza cualquier valor que se le mande.
   await airtable("", {
     method: "POST",
     body: JSON.stringify({
       records: [
         {
           fields: {
-            id: siguiente,
             nombre,
             cedula,
             estado: "ACTIVO",
