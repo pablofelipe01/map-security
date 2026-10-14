@@ -416,12 +416,21 @@ function Tarjeta({
 }) {
   const { origenB, origenN, destinoB, destinoN, pendiente } = datosFila(viaje);
 
+  // Las vueltas pendientes por recoger se tiñen de Azul Cielo, con una franja
+  // a la izquierda para que se distingan aunque no se vea el color. Es marca y
+  // no semáforo: no es una alarma, es otro tipo de renglón.
   return (
-    <li className="card overflow-hidden">
+    <li
+      className={`card overflow-hidden ${
+        viaje.vuelta_pendiente ? "border-l-4 border-l-accent-2 bg-accent-2/10" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={onAbrir}
-        className="block w-full p-3 text-left active:bg-surface-2"
+        className={`block w-full p-3 text-left ${
+          viaje.vuelta_pendiente ? "active:bg-accent-2/20" : "active:bg-surface-2"
+        }`}
       >
         <div className="mb-2 flex items-center gap-2">
           <span className="mono text-[13px] font-bold text-ink-3">
@@ -465,6 +474,10 @@ function Tarjeta({
           {viaje.operador_nombre ? (
             <span className="text-[12.5px] text-ink">
               {viaje.operador_nombre}
+            </span>
+          ) : viaje.vuelta_pendiente ? (
+            <span className="text-[12.5px] font-bold text-accent">
+              Pendiente por recoger
             </span>
           ) : (
             <span
@@ -575,9 +588,11 @@ function Fila({
   return (
     <tr
       onClick={onAbrir}
-      className={`cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2 ${
-        pendiente ? "" : "text-ink-2"
-      }`}
+      className={`cursor-pointer border-b border-border last:border-b-0 ${
+        viaje.vuelta_pendiente
+          ? "bg-accent-2/10 shadow-[inset_4px_0_0_#00a3ff] hover:bg-accent-2/20"
+          : "hover:bg-surface-2"
+      } ${pendiente ? "" : "text-ink-2"}`}
     >
       <td className="mono px-2 py-1.5 text-ink-3">{viaje.consecutivo}</td>
 
@@ -624,11 +639,16 @@ function Fila({
       <td className="mono px-2 py-1.5">{viaje.vagon ?? "—"}</td>
 
       <td className="px-2 py-1.5">
-        {viaje.operador_nombre ?? (
-          <span className={viaje.salida_en ? "text-st-detenida" : "text-ink-3"}>
-            Sin asignar
-          </span>
-        )}
+        {viaje.operador_nombre ??
+          (viaje.vuelta_pendiente ? (
+            <span className="font-bold text-accent">Pendiente por recoger</span>
+          ) : (
+            <span
+              className={viaje.salida_en ? "text-st-detenida" : "text-ink-3"}
+            >
+              Sin asignar
+            </span>
+          ))}
       </td>
 
       <td className="px-2 py-1.5">
@@ -676,6 +696,7 @@ interface Borrador {
   destino: Acopio | null;
   vagon: string;
   conductor: Conductor;
+  vuelta_pendiente: boolean;
   observaciones: string;
 }
 
@@ -689,6 +710,7 @@ const BORRADOR_VACIO: Borrador = {
   destino: null,
   vagon: "",
   conductor: CONDUCTOR_VACIO,
+  vuelta_pendiente: false,
   observaciones: "",
 };
 
@@ -747,7 +769,9 @@ function FilaNueva({
   const listo =
     !!b.origen &&
     !vagonHuerfano &&
-    conductorListo(conductor) &&
+    // Con la vuelta pendiente el campo no se ve: lo que haya quedado escrito
+    // ahí no puede trabar el botón.
+    (b.vuelta_pendiente || conductorListo(conductor)) &&
     !guardando &&
     !ocupado;
 
@@ -756,11 +780,9 @@ function FilaNueva({
     setGuardando(true);
     setError(null);
     try {
-      const operador_id = await idConductor(
-        conductor,
-        onCrearOperador,
-        b.conductor.documento,
-      );
+      const operador_id = b.vuelta_pendiente
+        ? null
+        : await idConductor(conductor, onCrearOperador, b.conductor.documento);
       await onRegistrar({
         jornada,
         tipo_fruto: b.tipo_fruto,
@@ -768,6 +790,7 @@ function FilaNueva({
         destino_acopio_id: b.destino?.id ?? null,
         vagon: b.vagon,
         operador_id,
+        vuelta_pendiente: b.vuelta_pendiente,
         observaciones: b.observaciones,
       });
       // El tipo de fruto se conserva: los reportes llegan en rachas del mismo
@@ -861,16 +884,24 @@ function FilaNueva({
           />
         </Pregunta>
 
+        <CasillaVueltaPendiente
+          marcada={b.vuelta_pendiente}
+          disabled={guardando}
+          onChange={(v) => puso({ vuelta_pendiente: v })}
+        />
+
         {/* `grupo`: puede traer el campo de cédula y botones debajo, y un
             `<label>` alrededor mandaría cualquier toque al nombre. */}
-        <Pregunta label="Conductor" opcional grupo>
-          <CampoConductor
-            valor={b.conductor}
-            operadores={operadores}
-            disabled={guardando}
-            onChange={(c) => puso({ conductor: c })}
-          />
-        </Pregunta>
+        {!b.vuelta_pendiente && (
+          <Pregunta label="Conductor" opcional grupo>
+            <CampoConductor
+              valor={b.conductor}
+              operadores={operadores}
+              disabled={guardando}
+              onChange={(c) => puso({ conductor: c })}
+            />
+          </Pregunta>
+        )}
 
         <Pregunta label="Observaciones" opcional>
           <textarea
@@ -889,6 +920,36 @@ function FilaNueva({
         {guardando ? "Registrando…" : "Registrar renglón"}
       </button>
     </form>
+  );
+}
+
+/**
+ * "Vuelta pendiente por recoger": se sabe que hay que ir pero todavía no hay
+ * quién. Marcada, el campo del conductor desaparece — no hay nada que anotar
+ * ahí — y el renglón deja de contar como "salió sin conductor".
+ */
+function CasillaVueltaPendiente({
+  marcada,
+  disabled,
+  onChange,
+}: {
+  marcada: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-[40px] cursor-pointer items-center gap-2.5">
+      <input
+        type="checkbox"
+        className="h-4 w-4 shrink-0 accent-accent"
+        checked={marcada}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="text-[13px] font-bold text-ink">
+        Vuelta pendiente por recoger
+      </span>
+    </label>
   );
 }
 
@@ -1335,6 +1396,9 @@ function DialogoViaje({
   );
   const [vagon, setVagon] = useState(viaje.vagon ?? "");
   const [conductor, setConductor] = useState<Conductor>(conductorDe(viaje));
+  const [vueltaPendiente, setVueltaPendiente] = useState(
+    viaje.vuelta_pendiente,
+  );
   const [obs, setObs] = useState(viaje.observaciones ?? "");
   const [reporte, setReporte] = useState(hhmm(viaje.reportado_en));
   const [salida, setSalida] = useState(hhmm(viaje.salida_en));
@@ -1348,7 +1412,8 @@ function DialogoViaje({
     operadores,
     viaje.operador_id,
   );
-  const conductorSuelto = !conductorListo(estadoConductor);
+  const conductorSuelto =
+    !vueltaPendiente && !conductorListo(estadoConductor);
   const horaMala = reporte.trim() !== "" && !bogotaISO(jornada, reporte);
   const salidaMala = salida.trim() !== "" && !bogotaISO(jornada, salida);
   // La base rechaza una salida anterior al reporte
@@ -1367,17 +1432,20 @@ function DialogoViaje({
     setGuardando(true);
     setError(null);
     try {
-      const operador_id = await idConductor(
-        estadoConductor,
-        onCrearOperador,
-        conductor.documento,
-      );
+      const operador_id = vueltaPendiente
+        ? null
+        : await idConductor(
+            estadoConductor,
+            onCrearOperador,
+            conductor.documento,
+          );
       const cambios: ViajeCambios = {
         tipo_fruto: tipo,
         origen_acopio_id: origen.id,
         destino_acopio_id: destino?.id ?? null,
         vagon,
         operador_id,
+        vuelta_pendiente: vueltaPendiente,
         observaciones: obs,
         // Vacío = borrar la salida (el renglón vuelve a estar pendiente), que es
         // cómo se deshace un clic equivocado en "Marcar salida".
@@ -1498,15 +1566,25 @@ function DialogoViaje({
       {/* No es `Campo`: ése es un `<label>`, y con la cédula y los botones
           debajo cualquier toque se iría al nombre. */}
       <div className="mb-3">
-        <span className="t-label mb-1 block">Conductor</span>
-        <CampoConductor
-          valor={conductor}
-          operadores={operadores}
-          actualId={viaje.operador_id}
+        <CasillaVueltaPendiente
+          marcada={vueltaPendiente}
           disabled={guardando}
-          onChange={setConductor}
+          onChange={setVueltaPendiente}
         />
       </div>
+
+      {!vueltaPendiente && (
+        <div className="mb-3">
+          <span className="t-label mb-1 block">Conductor</span>
+          <CampoConductor
+            valor={conductor}
+            operadores={operadores}
+            actualId={viaje.operador_id}
+            disabled={guardando}
+            onChange={setConductor}
+          />
+        </div>
+      )}
 
       <Campo label="Observaciones">
         <textarea

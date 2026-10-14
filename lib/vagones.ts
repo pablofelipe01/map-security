@@ -90,6 +90,8 @@ export interface Viaje {
 
   operador_id: string | null;
   operador_nombre: string | null;
+  /** Vuelta pendiente por recoger: todavía no hay quién vaya, a propósito. */
+  vuelta_pendiente: boolean;
 }
 
 /** Lo que hace falta para abrir un renglón nuevo. */
@@ -104,6 +106,7 @@ export interface ViajeNuevo {
   vagon?: string | null;
   operador_id?: string | null;
   observaciones?: string | null;
+  vuelta_pendiente?: boolean;
 }
 
 /** Lo que se puede corregir después. La jornada y el "No." no están: son la
@@ -166,7 +169,7 @@ const COLUMNAS =
   "id,jornada,consecutivo,tipo_fruto,reportado_en,salida_en,vagon,observaciones," +
   "origen_acopio_id,origen_codigo,origen_bloque,origen_lote,origen_num,origen_lat,origen_lon," +
   "destino_acopio_id,destino_codigo,destino_bloque,destino_lote,destino_num,destino_lat,destino_lon," +
-  "operador_id,operador_nombre";
+  "operador_id,operador_nombre,vuelta_pendiente";
 
 /**
  * La hoja de una jornada, en el orden del papel.
@@ -326,7 +329,8 @@ export interface ResumenPlanilla {
   total: number;
   /** Reportados que todavía no salen: el pendiente del día. */
   pendientes: number;
-  /** Salidos pero sin conductor anotado — casi siempre es un olvido. */
+  /** Salidos pero sin conductor anotado — casi siempre es un olvido. Las
+   *  vueltas pendientes no cuentan: ahí el blanco es a propósito. */
   sinConductor: number;
   hibrido: number;
   comercial: number;
@@ -336,7 +340,9 @@ export function resumirPlanilla(viajes: Viaje[]): ResumenPlanilla {
   return {
     total: viajes.length,
     pendientes: viajes.filter((v) => !v.salida_en).length,
-    sinConductor: viajes.filter((v) => v.salida_en && !v.operador_id).length,
+    sinConductor: viajes.filter(
+      (v) => v.salida_en && !v.operador_id && !v.vuelta_pendiente,
+    ).length,
     hibrido: viajes.filter((v) => v.tipo_fruto === "hibrido").length,
     comercial: viajes.filter((v) => v.tipo_fruto === "comercial").length,
   };
