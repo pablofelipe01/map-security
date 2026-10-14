@@ -801,6 +801,7 @@ export default function Page() {
             instante={instante}
             onClose={() => setAsignacionNodeId(null)}
             onChanged={recargarFlota}
+            catalogo={catalogo}
           />
         )}
 

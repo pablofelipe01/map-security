@@ -192,6 +192,30 @@ export async function fetchPlanilla(jornada: string): Promise<Viaje[]> {
   return (data ?? []) as unknown as Viaje[];
 }
 
+/**
+ * Las vueltas pendientes por recoger que todavía no salen, de cualquier día.
+ *
+ * Sin filtro de jornada a propósito: una vuelta que quedó pendiente ayer sigue
+ * pendiente hoy, y es justo la que no se puede perder de vista. Deja de
+ * aparecer cuando se le marca la salida o se le quita la marca.
+ */
+export async function fetchVueltasPendientes(): Promise<Viaje[]> {
+  const { data, error } = await supabase
+    .from("v_planilla_vagones")
+    .select(COLUMNAS)
+    .eq("vuelta_pendiente", true)
+    .is("salida_en", null)
+    .order("jornada")
+    .order("consecutivo");
+
+  if (error) {
+    if (FALTA.has(error.code ?? "")) return [];
+    throw traducir(error);
+  }
+
+  return (data ?? []) as unknown as Viaje[];
+}
+
 /* ============================== escritura ============================== */
 
 /**

@@ -12,11 +12,22 @@ import {
   maquinasLibres,
   type Flota,
 } from "@/lib/registro";
-import { COLOR_DEFAULT, TIPOS_MAQUINA, type TipoMaquina } from "@/lib/tractores";
+import {
+  COLOR_DEFAULT,
+  COLORES_FLOTA,
+  TIPOS_MAQUINA,
+  type TipoMaquina,
+} from "@/lib/tractores";
+import {
+  emparejar,
+  tipoDeDescripcion,
+  type MaquinaCombustible,
+} from "@/lib/combustible";
 import type { NodeRow } from "@/lib/types";
 import { fmtDateTime } from "@/lib/geo";
 import { Aviso, Campo, Dialogo, Seccion, SelectorColor } from "./Form";
 import { MiniIcon } from "./SidePanel";
+import SelectBuscable, { type OpcionBuscable } from "./SelectBuscable";
 
 interface Props {
   /** Nodo sobre el que se hizo clic. */
@@ -27,9 +38,14 @@ interface Props {
   onClose: () => void;
   /** Vuelve a leer la flota después de escribir. */
   onChanged: () => Promise<void> | void;
+  /** Parque de la base de combustible (Airtable). null = todavía no llega o
+   *  no respondió: el selector sigue sirviendo con las registradas. */
+  catalogo?: MaquinaCombustible[] | null;
 }
 
 const NUEVA = "__nueva__";
+/** Prefijo de las opciones que vienen del parque de Airtable. */
+const PARQUE = "parque:";
 
 /**
  * Diálogo de asignación de un nodo: en qué máquina va montado y quién la maneja.
@@ -49,6 +65,7 @@ export default function AsignacionModal({
   instante,
   onClose,
   onChanged,
+  catalogo,
 }: Props) {
   const { maquina, operador } = identidadDeNodoEn(flota, node.node_id, instante);
 
@@ -74,9 +91,49 @@ export default function AsignacionModal({
     () => maquinasLibres(flota, instante),
     [flota, instante]
   );
+  // Las del parque que todavía no están en el registro. Se cruzan con
+  // `emparejar`, el mismo cruce por código que usa el resto de la app ("936" de
+  // la torre es "LZT936" del parque), y contra TODAS las registradas —también
+  // las inactivas—: ofrecer una que ya existe terminaría en un código repetido.
+  const delParque = useMemo(() => {
+    if (!catalogo) return [];
+    const registradas = new Set(
+      flota.maquinas
+        .map((m) => emparejar(m.codigo, catalogo)?.codigo)
+        .filter(Boolean),
+    );
+    return catalogo.filter((m) => !registradas.has(m.codigo));
+  }, [catalogo, flota.maquinas]);
   const operadoresLibres = useMemo(
     () => flota.operadores.filter((o) => o.activo && o.id !== operador?.id),
     [flota.operadores, operador?.id]
+  );
+
+  const opcionesMaquina = useMemo<OpcionBuscable[]>(
+    () => [
+      ...disponibles.map((m) => ({
+        valor: m.id,
+        texto: `${m.codigo} · ${m.nombre}`,
+        grupo: "Registradas",
+      })),
+      ...delParque.map((m) => ({
+        valor: PARQUE + m.codigo,
+        texto: m.descripcion ? `${m.codigo} · ${m.descripcion}` : m.codigo,
+        grupo: "Del parque (base de combustible)",
+      })),
+      { valor: NUEVA, texto: "➕ Registrar una máquina nueva…", siempre: true },
+    ],
+    [disponibles, delParque]
+  );
+  const opcionesOperador = useMemo<OpcionBuscable[]>(
+    () => [
+      ...operadoresLibres.map((o) => ({
+        valor: o.id,
+        texto: o.nombre + (nodoOcupado(flota, o.id) ? " (en otra máquina)" : ""),
+      })),
+      { valor: NUEVA, texto: "➕ Registrar un operador nuevo…", siempre: true },
+    ],
+    [operadoresLibres, flota]
   );
 
   useEffect(() => {
@@ -101,10 +158,35 @@ export default function AsignacionModal({
     }
   };
 
+  // Elegir una del parque llena el formulario de máquina nueva con lo que ya se
+  // sabe de ella; el nombre y el color se pueden cambiar antes de guardar.
+  const elegirMaquina = (valor: string) => {
+    setMaquinaSel(valor);
+    if (valor.startsWith(PARQUE)) {
+      const m = delParque.find((x) => x.codigo === valor.slice(PARQUE.length));
+      if (!m) return;
+      setNmCodigo(m.codigo);
+      setNmNombre(m.descripcion ?? m.codigo);
+      setNmTipo(tipoDeDescripcion(m.descripcion));
+      // El primer color de la flota que nadie use todavía, para que la nueva
+      // se distinga en el mapa sin tener que pensarlo.
+      const usados = new Set(flota.maquinas.map((x) => x.color.toLowerCase()));
+      setNmColor(
+        COLORES_FLOTA.find((c) => !usados.has(c.toLowerCase())) ?? COLOR_DEFAULT,
+      );
+    } else if (valor === NUEVA) {
+      setNmCodigo("");
+      setNmNombre("");
+      setNmTipo("tractor");
+      setNmColor(COLOR_DEFAULT);
+    }
+  };
+  const formularioNueva = maquinaSel === NUEVA || maquinaSel.startsWith(PARQUE);
+
   const guardarMaquina = () =>
     correr(async () => {
       let id = maquinaSel;
-      if (id === NUEVA) {
+      if (formularioNueva) {
         const m = await crearMaquina({
           codigo: nmCodigo,
           nombre: nmNombre,
@@ -144,7 +226,7 @@ export default function AsignacionModal({
     nmCodigo.trim() !== "" && nmNombre.trim() !== "";
   const puedeGuardarMaquina =
     !guardando &&
-    (maquinaSel === NUEVA ? maquinaNuevaLista : maquinaSel !== "");
+    (formularioNueva ? maquinaNuevaLista : maquinaSel !== "");
   const puedeGuardarOperador =
     !guardando &&
     !!maquina &&
@@ -190,30 +272,32 @@ export default function AsignacionModal({
 
         <Campo
           label={maquina ? "Pasar a otra máquina" : "Asignar máquina"}
-          ayuda="Sólo aparecen las que no llevan otro nodo montado."
+          grupo
+          ayuda={
+            catalogo
+              ? "Registradas: sólo las que no llevan otro nodo. Del parque: las de la base de combustible que aún no están registradas."
+              : "Sólo aparecen las que no llevan otro nodo montado."
+          }
         >
-          <select
-            className="field w-full"
-            value={maquinaSel}
-            onChange={(e) => setMaquinaSel(e.target.value)}
-          >
-            <option value="">— sin cambios —</option>
-            {disponibles.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.codigo} · {m.nombre}
-              </option>
-            ))}
-            <option value={NUEVA}>➕ Registrar una máquina nueva…</option>
-          </select>
+          <SelectBuscable
+            valor={maquinaSel}
+            opciones={opcionesMaquina}
+            onChange={elegirMaquina}
+            placeholder="Código o nombre…"
+            disabled={guardando}
+          />
         </Campo>
 
-        {maquinaSel === NUEVA && (
+        {formularioNueva && (
           <div className="mb-2 rounded-xl bg-surface-2 p-2.5">
             <div className="grid grid-cols-2 gap-2">
               <Campo label="Código">
+                {/* El del parque no se edita: es la llave con la que se cruzan
+                    los tanqueos de esa máquina. */}
                 <input
                   className="field w-full font-mono"
                   value={nmCodigo}
+                  readOnly={maquinaSel !== NUEVA}
                   onChange={(e) => setNmCodigo(e.target.value)}
                   placeholder="T-01"
                   autoComplete="off"
@@ -284,21 +368,14 @@ export default function AsignacionModal({
               </span>
             </div>
 
-            <Campo label="Entregar el turno a">
-              <select
-                className="field w-full"
-                value={operadorSel}
-                onChange={(e) => setOperadorSel(e.target.value)}
-              >
-                <option value="">— sin cambios —</option>
-                {operadoresLibres.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.nombre}
-                    {nodoOcupado(flota, o.id) ? " (en otra máquina)" : ""}
-                  </option>
-                ))}
-                <option value={NUEVA}>➕ Registrar un operador nuevo…</option>
-              </select>
+            <Campo label="Entregar el turno a" grupo>
+              <SelectBuscable
+                valor={operadorSel}
+                opciones={opcionesOperador}
+                onChange={setOperadorSel}
+                placeholder="Nombre del operador…"
+                disabled={guardando}
+              />
             </Campo>
 
             {operadorSel === NUEVA && (

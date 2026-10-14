@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PlanillaVagones from "@/components/PlanillaVagones";
+import QrPendientes from "@/components/QrPendientes";
 import {
   fetchAcopios,
   registrarAcopio,
@@ -63,6 +64,7 @@ export default function DespachoPage() {
   const [cargando, setCargando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verQr, setVerQr] = useState(false);
 
   /* --------------------------- carga --------------------------- */
 
@@ -197,6 +199,7 @@ export default function DespachoPage() {
     // borde y no había cómo llegar al botón de registrar. `h-dvh` +
     // `overflow-y-auto` la vuelve su propio contenedor de desplazamiento.
     <main className="h-dvh overflow-y-auto overscroll-contain bg-bg">
+      {verQr && <QrPendientes onClose={() => setVerQr(false)} />}
       {/* La barra se arma en dos renglones en celular y en uno en escritorio.
           Amontonar los enlaces, el título y el selector de día en una sola
           línea de 390 px los parte donde caiga, y el resultado es una cabecera
@@ -214,6 +217,13 @@ export default function DespachoPage() {
           <Link href="/despacho/rutas" className="back-link shrink-0">
             Rutas del día
           </Link>
+          <button
+            type="button"
+            className="back-link shrink-0"
+            onClick={() => setVerQr(true)}
+          >
+            QR pendientes
+          </button>
 
           <h1 className="card-h2 !mb-0 md:mr-auto">Planilla de vagones</h1>
 

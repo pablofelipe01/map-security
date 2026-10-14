@@ -13,14 +13,19 @@ import { COLORES_FLOTA } from "@/lib/tractores";
 export function Campo({
   label,
   ayuda,
+  grupo,
   children,
 }: {
   label: string;
   ayuda?: string;
+  /** El campo trae botones o una lista propia: un `<label>` alrededor
+   *  mandaría cualquier toque de vuelta al primer control. */
+  grupo?: boolean;
   children: React.ReactNode;
 }) {
+  const Caja = grupo ? "div" : "label";
   return (
-    <label className="mb-3 block">
+    <Caja className="mb-3 block">
       <span className="t-label mb-1 block">{label}</span>
       {children}
       {ayuda && (
@@ -28,7 +33,7 @@ export function Campo({
           {ayuda}
         </span>
       )}
-    </label>
+    </Caja>
   );
 }
 
