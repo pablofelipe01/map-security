@@ -684,7 +684,10 @@ export default function Page() {
       }
     : null;
 
+  // Sólo en histórico. En vivo el panel de flota ya dice "Sin GPS" máquina por
+  // máquina, y una tarjeta en el centro tapaba las antenas, que sí hay que ver.
   const sinNadaQueMostrar =
+    mode !== "live" &&
     !loading &&
     !error &&
     trails.length === 0 &&
@@ -843,15 +846,9 @@ export default function Page() {
         {sinNadaQueMostrar && (
           <div className="pointer-events-none absolute inset-0 z-[900] grid place-items-center">
             <div className="card px-6 py-5 text-center">
-              <p className="text-sm font-bold">
-                {mode === "live"
-                  ? "Ninguna máquina reporta posición"
-                  : "Sin recorridos ese día"}
-              </p>
+              <p className="text-sm font-bold">Sin recorridos ese día</p>
               <p className="mt-1 text-xs text-ink-2">
-                {mode === "live"
-                  ? "Los nodos están en la red pero ninguno ha entregado coordenadas."
-                  : "Ninguno de los nodos registró fixes GPS en la fecha seleccionada."}
+                Ninguno de los nodos registró fixes GPS en la fecha seleccionada.
               </p>
             </div>
           </div>
