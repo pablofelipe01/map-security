@@ -139,6 +139,13 @@ interface Props {
    */
   margenDerecho?: number;
   /**
+   * Sube cada vez que cambia el registro de flota. Las etiquetas de los
+   * marcadores salen de `maquinaDe`, que lee un módulo y no el estado de React:
+   * sin esta prop, si la flota llega antes que el registro, los marcadores se
+   * quedan con el código del radio ("97b7") en vez del de la máquina.
+   */
+  registroVersion?: number;
+  /**
    * Punto buscado por coordenadas, o null si no hay ninguno.
    *
    * Se pasa un objeto NUEVO en cada búsqueda aunque las coordenadas sean las
@@ -427,6 +434,7 @@ export default function MapGL({
   onOpenMachine,
   fitToken,
   margenDerecho = 0,
+  registroVersion = 0,
   // Se renombra al desestructurar porque en este archivo ya hay una función
   // `punto()` —la que arma los extremos de un rastro— y la prop la taparía
   // dentro del componente.
@@ -1320,7 +1328,7 @@ Puesto fijo (sin nodo)`;
         markerRef.current.delete(id);
       }
     });
-  }, [fleet, mode]);
+  }, [fleet, mode, registroVersion]);
 
   // --- Marcadores del replay ---
   useEffect(() => {

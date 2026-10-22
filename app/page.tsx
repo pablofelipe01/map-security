@@ -726,6 +726,7 @@ export default function Page() {
           fitToken={fitToken}
           // 332 px de ancho del panel + 14 px de su separación del borde.
           margenDerecho={panelOpen ? 346 : 0}
+          registroVersion={registroVersion}
           punto={punto}
           capas={capas}
           palmas={palmasSel}
