@@ -133,6 +133,12 @@ interface Props {
   onOpenMachine: (nodeId: string) => void;
   fitToken: number;
   /**
+   * Píxeles que el panel lateral tapa a la derecha (0 si está cerrado). El
+   * panel flota encima del mapa, así que el reencuadre tiene que dejarle ese
+   * margen o lo que quede en el borde derecho se dibuja debajo de él.
+   */
+  margenDerecho?: number;
+  /**
    * Punto buscado por coordenadas, o null si no hay ninguno.
    *
    * Se pasa un objeto NUEVO en cada búsqueda aunque las coordenadas sean las
@@ -420,6 +426,7 @@ export default function MapGL({
   onSelect,
   onOpenMachine,
   fitToken,
+  margenDerecho = 0,
   // Se renombra al desestructurar porque en este archivo ya hay una función
   // `punto()` —la que arma los extremos de un rastro— y la prop la taparía
   // dentro del componente.
@@ -1398,6 +1405,12 @@ ${
     } else {
       trails.forEach((t) => t.latlngs.forEach(([la, lo]) => push(lo, la)));
       fleet?.forEach(empujar);
+      // Las antenas también: sin ellas el encuadre se cerraba sobre las
+      // máquinas y la mitad de la red (Brisas, Forsoza, Bloque 1…) quedaba
+      // fuera de pantalla sin que nada avisara que existía.
+      sitios.forEach((s) => {
+        if (s.lat != null && s.lon != null) push(s.lon, s.lat);
+      });
     }
 
     // El encuadre tiene que apuntar a donde está dibujado el marcador, que para
@@ -1422,7 +1435,15 @@ ${
       if (ne.lat === sw.lat && ne.lng === sw.lng) {
         map.easeTo({ center: b.getCenter(), zoom: 16, duration: 600 });
       } else {
-        map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 600 });
+        // Si el panel ocupa más de medio mapa (celular), no se le reserva
+        // margen: no quedaría espacio útil para encuadrar nada.
+        const panel =
+          margenDerecho < map.getContainer().clientWidth / 2 ? margenDerecho : 0;
+        map.fitBounds(b, {
+          padding: { top: 80, bottom: 80, left: 80, right: 80 + panel },
+          maxZoom: 17,
+          duration: 600,
+        });
       }
     };
 

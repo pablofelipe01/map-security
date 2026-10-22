@@ -21,6 +21,43 @@ const TRACK_COLUMNS =
  */
 const PAGE = 1000;
 
+/**
+ * Tope de consultas simultáneas a `v_node_track` / `v_node_estadias`.
+ *
+ * Las dos vistas recalculan sus ventanas sobre TODA la tabla de posiciones en
+ * cada consulta, filtre lo que filtre: pedir 1 fila cuesta ~0.25 s de base y
+ * pedir los 6 nodos de un día entero apenas ~0.5 s (medido el 22-oct-2026). El
+ * costo está en el NÚMERO de consultas, no en su tamaño. Antes la carga en vivo
+ * hacía 3-4 por nodo (~20 en paralelo), el rol `anon` de Supabase las cortaba
+ * a los 3 s con `57014 statement timeout` y, como cada nodo atrapa su propio
+ * error, el mapa quedaba sin ninguna máquina y toda la flota en "Sin GPS".
+ *
+ * Por eso las lecturas de flota piden todos los nodos de una vez (`.in`), y
+ * este tope queda como red de seguridad para los caminos por nodo que
+ * sobreviven (universo de máquina, nodos sin fix reciente, respaldo).
+ */
+const MAX_EN_VUELO = 4;
+let enVuelo = 0;
+const enEspera: (() => void)[] = [];
+
+/** Corre `consulta` respetando el tope, y la repite una vez si hubo timeout. */
+async function enCola<T extends { error: { code?: string } | null }>(
+  consulta: () => PromiseLike<T>
+): Promise<T> {
+  if (enVuelo < MAX_EN_VUELO) enVuelo++;
+  // Quien sale le pasa su cupo directamente al siguiente (ver `finally`), así
+  // que aquí no se incrementa: nadie puede colarse entre la salida y la entrada.
+  else await new Promise<void>((r) => enEspera.push(r));
+  try {
+    const r = await consulta();
+    return r.error?.code === "57014" ? await consulta() : r;
+  } finally {
+    const siguiente = enEspera.shift();
+    if (siguiente) siguiente();
+    else enVuelo--;
+  }
+}
+
 /** Lista de nodos disponibles (para el selector). */
 export async function fetchNodes(): Promise<NodeRow[]> {
   const { data, error } = await supabase
@@ -52,23 +89,38 @@ export async function fetchTrack(
   fromISO: string,
   toISO: string
 ): Promise<TrackPoint[]> {
+  return fetchTrackNodos([nodeId], fromISO, toISO);
+}
+
+/** `fetchTrack` para varios nodos en UNA consulta (ver `MAX_EN_VUELO`). */
+async function fetchTrackNodos(
+  nodeIds: string[],
+  fromISO: string,
+  toISO: string
+): Promise<TrackPoint[]> {
   const out: TrackPoint[] = [];
 
   // Se pagina hasta que una página vuelva incompleta: así una ventana larga
   // (la serie de 14 días del universo de máquina) no se queda muda en el tope
   // de 1000 filas de PostgREST.
   for (let desde = 0; ; desde += PAGE) {
-    const { data, error } = await supabase
-      .from("v_node_track")
-      .select(TRACK_COLUMNS)
-      .eq("node_id", nodeId)
-      .eq("nuevo_fix", true)
-      .eq("es_outlier", false)
-      .not("lat", "is", null)
-      .gte("sample_local", fromISO)
-      .lte("sample_local", toISO)
-      .order("sample_local", { ascending: true })
-      .range(desde, desde + PAGE - 1);
+    const { data, error } = await enCola(() =>
+      supabase
+        .from("v_node_track")
+        .select(TRACK_COLUMNS)
+        .in("node_id", nodeIds)
+        .eq("nuevo_fix", true)
+        .eq("es_outlier", false)
+        .not("lat", "is", null)
+        .gte("sample_local", fromISO)
+        .lte("sample_local", toISO)
+        .order("sample_local", { ascending: true })
+        // Desempate por id: el poller sella a todos los nodos con el mismo
+        // `sample_local`, y sin un orden total la paginación podría repetir o
+        // saltarse filas en el borde de una página.
+        .order("id", { ascending: true })
+        .range(desde, desde + PAGE - 1)
+    );
 
     if (error) throw error;
     const pagina = (data ?? []) as unknown as TrackPoint[];
@@ -87,14 +139,25 @@ export async function fetchEstadias(
   fromISO: string,
   toISO: string
 ): Promise<Estadia[]> {
-  const { data, error } = await supabase
-    .from("v_node_estadias")
-    .select("node_id,desde,hasta,minutos,n_fixes,lat_pin,lon_pin")
-    .eq("node_id", nodeId)
-    .lte("desde", toISO)
-    .gte("hasta", fromISO)
-    .order("desde", { ascending: true })
-    .range(0, PAGE - 1);
+  return fetchEstadiasNodos([nodeId], fromISO, toISO);
+}
+
+/** `fetchEstadias` para varios nodos en UNA consulta. */
+async function fetchEstadiasNodos(
+  nodeIds: string[],
+  fromISO: string,
+  toISO: string
+): Promise<Estadia[]> {
+  const { data, error } = await enCola(() =>
+    supabase
+      .from("v_node_estadias")
+      .select("node_id,desde,hasta,minutos,n_fixes,lat_pin,lon_pin")
+      .in("node_id", nodeIds)
+      .lte("desde", toISO)
+      .gte("hasta", fromISO)
+      .order("desde", { ascending: true })
+      .range(0, PAGE - 1)
+  );
 
   if (error) throw error;
   return (data ?? []).map((r: any) => ({
@@ -123,12 +186,14 @@ async function fetchUltimasFilas(
   nodeId: string,
   limite = FILAS_POR_NODO
 ): Promise<TrackPoint[]> {
-  const { data, error } = await supabase
-    .from("v_node_track")
-    .select(TRACK_COLUMNS)
-    .eq("node_id", nodeId)
-    .order("sample_local", { ascending: false })
-    .limit(limite);
+  const { data, error } = await enCola(() =>
+    supabase
+      .from("v_node_track")
+      .select(TRACK_COLUMNS)
+      .eq("node_id", nodeId)
+      .order("sample_local", { ascending: false })
+      .limit(limite)
+  );
 
   if (error) throw error;
   return (data ?? []) as unknown as TrackPoint[];
@@ -144,34 +209,91 @@ async function fetchUltimasFilas(
 async function fetchUltimoFixHistorico(
   nodeId: string
 ): Promise<TrackPoint | null> {
-  const { data, error } = await supabase
-    .from("v_node_track")
-    .select(TRACK_COLUMNS)
-    .eq("node_id", nodeId)
-    .eq("nuevo_fix", true)
-    .eq("es_outlier", false)
-    .not("lat", "is", null)
-    .order("sample_local", { ascending: false })
-    .limit(1);
+  const { data, error } = await enCola(() =>
+    supabase
+      .from("v_node_track")
+      .select(TRACK_COLUMNS)
+      .eq("node_id", nodeId)
+      .eq("nuevo_fix", true)
+      .eq("es_outlier", false)
+      .not("lat", "is", null)
+      .order("sample_local", { ascending: false })
+      .limit(1)
+  );
 
   if (error) throw error;
   return ((data ?? [])[0] as unknown as TrackPoint) ?? null;
 }
 
 /**
+ * Ventana con la que se leen de una vez las últimas filas de toda la flota.
+ * El poller escribe una fila por nodo cada 10 min, con o sin fix, así que 6 h
+ * traen ~36 por nodo: de sobra para las `FILAS_POR_NODO` (30) que se usan.
+ */
+const VENTANA_FLOTA_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Últimas filas de varios nodos en UNA consulta, agrupadas por nodo y de la
+ * más reciente a la más antigua. PostgREST no expone "las N últimas por
+ * grupo", así que se pide una ventana de tiempo y se recorta en el cliente.
+ * El nodo que no alcance sus N filas en la ventana (poller caído, nodo nuevo)
+ * queda fuera del mapa devuelto y se pide aparte con `fetchUltimasFilas`.
+ */
+async function fetchUltimasFilasNodos(
+  nodeIds: string[],
+  limite = FILAS_POR_NODO
+): Promise<Map<string, TrackPoint[]>> {
+  const desdeISO = new Date(Date.now() - VENTANA_FLOTA_MS).toISOString();
+  const porNodo = new Map<string, TrackPoint[]>();
+
+  for (let desde = 0; ; desde += PAGE) {
+    const { data, error } = await enCola(() =>
+      supabase
+        .from("v_node_track")
+        .select(TRACK_COLUMNS)
+        .in("node_id", nodeIds)
+        .gte("sample_local", desdeISO)
+        .order("sample_local", { ascending: false })
+        .order("id", { ascending: false })
+        .range(desde, desde + PAGE - 1)
+    );
+
+    if (error) throw error;
+    const pagina = (data ?? []) as unknown as TrackPoint[];
+    for (const f of pagina) {
+      const filas = porNodo.get(f.node_id) ?? [];
+      if (filas.length < limite) filas.push(f);
+      porNodo.set(f.node_id, filas);
+    }
+    if (pagina.length < PAGE) break;
+  }
+
+  for (const [id, filas] of porNodo) {
+    if (filas.length < limite) porNodo.delete(id);
+  }
+  return porNodo;
+}
+
+/**
  * Estado actual de toda la flota (la vista de torre de control).
  *
- * Una consulta por nodo en paralelo: la flota es de unos pocos nodos y postgrest
- * no expone DISTINCT ON. Un nodo que falle entra con estado `sin_gps` en vez de
- * tumbar la vista completa — es normal que un nodo recién dado de alta no tenga
- * fix, y un supervisor prefiere ver 5 tractores y un error que una pantalla en
- * blanco.
+ * Las últimas filas de todos los nodos salen de UNA consulta (ver
+ * `MAX_EN_VUELO` para por qué no una por nodo). Sólo van por nodo los casos
+ * raros: el que no llenó la ventana y el que necesita su fix histórico. Un
+ * nodo que falle entra con estado `sin_gps` en vez de tumbar la vista completa
+ * — es normal que un nodo recién dado de alta no tenga fix, y un supervisor
+ * prefiere ver 5 tractores y un error que una pantalla en blanco. Si falla la
+ * consulta en lote, cada nodo cae al camino individual.
  */
 export async function fetchFleet(nodes: NodeRow[]): Promise<FleetItem[]> {
+  const enLote = await fetchUltimasFilasNodos(
+    nodes.map((n) => n.node_id)
+  ).catch(() => new Map<string, TrackPoint[]>());
   return Promise.all(
     nodes.map(async (node) => {
       try {
-        const filas = await fetchUltimasFilas(node.node_id);
+        const filas =
+          enLote.get(node.node_id) ?? (await fetchUltimasFilas(node.node_id));
         const hayFixReciente = filas.some((f) => f.nuevo_fix && f.lat != null);
         const historico = hayFixReciente
           ? null
@@ -198,15 +320,29 @@ export async function fetchFleet(nodes: NodeRow[]): Promise<FleetItem[]> {
 /**
  * Recorrido de TODAS las máquinas en un día (vista HISTÓRICO).
  *
- * Una consulta por nodo en paralelo. Un nodo que falle entra con la lista de
- * puntos vacía en vez de tumbar la vista: en esta flota es normal que varios
- * nodos no reporten nada, y el supervisor necesita ver los que sí.
+ * Una sola consulta para toda la flota, repartida por nodo en el cliente. Si
+ * esa consulta falla se cae a una por nodo, donde un nodo que falle entra con
+ * la lista de puntos vacía en vez de tumbar la vista: en esta flota es normal
+ * que varios nodos no reporten nada, y el supervisor necesita ver los que sí.
  */
 export async function fetchTracksDay(
   nodes: NodeRow[],
   dateStr: string
 ): Promise<{ node: NodeRow; points: TrackPoint[] }[]> {
   const { fromISO, toISO } = dayRange(dateStr);
+  try {
+    const puntos = await fetchTrackNodos(
+      nodes.map((n) => n.node_id),
+      fromISO,
+      toISO
+    );
+    return nodes.map((node) => ({
+      node,
+      points: puntos.filter((p) => p.node_id === node.node_id),
+    }));
+  } catch {
+    // Respaldo por nodo, abajo.
+  }
   return Promise.all(
     nodes.map(async (node) => ({
       node,
@@ -266,6 +402,18 @@ export async function fetchEstadiasDay(
   dateStr: string
 ): Promise<Record<string, Estadia[]>> {
   const { fromISO, toISO } = dayRange(dateStr);
+  try {
+    const todas = await fetchEstadiasNodos(
+      nodes.map((n) => n.node_id),
+      fromISO,
+      toISO
+    );
+    return Object.fromEntries(
+      nodes.map((n) => [n.node_id, todas.filter((e) => e.node_id === n.node_id)])
+    );
+  } catch {
+    // Respaldo por nodo, abajo.
+  }
   const pares = await Promise.all(
     nodes.map(
       async (n) =>
